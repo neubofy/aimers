@@ -165,11 +165,15 @@ function App() {
 
         // Handle Response
         if (response.text) {
-            setChatHistory(prev => [...prev, { role: "assistant", content: response.text }]);
-            Voice.speak(response.text);
+            // FILTER OUT JSON ARTIFACTS COMPLETELY from user view
+            const cleanText = response.text.replace(/```json[\s\S]*?```/g, "").trim();
+            if (cleanText) {
+                setChatHistory(prev => [...prev, { role: "assistant", content: cleanText }]);
+                Voice.speak(cleanText);
+            }
         }
 
-        // Execute Commands (Multi-Step ReAct Pattern)
+        // Execute Commands Silently (No Toast)
         const cmds = response.commands || (response.command ? [response.command] : []);
 
         if (cmds.length > 0) {
@@ -177,16 +181,15 @@ function App() {
             for (const cmd of cmds) {
                 try {
                     const tool = cmd.tool || cmd.t;
-                    // TERMINAL NOTIFICATION
-                    setCmdToast(`> AGENT: ${tool.toUpperCase()} ${cmd.category || cmd.cat || cmd.id || ""}`);
 
-                    // SYSTEM STATUS IN CHAT
+                    // SILENT EXECUTION - No setCmdToast here
+                    // Only log to system chat for transparency if needed, or keep it totally hidden
                     setChatHistory(prev => [...prev, {
                         role: "system",
-                        content: `⚙️ Executing: ${tool.toUpperCase()}`
+                        content: `> Executing: ${tool}`
                     }]);
 
-                    await new Promise(r => setTimeout(r, 800));
+                    await new Promise(r => setTimeout(r, 500));
 
                     if (tool === "nav") {
                         let v = (cmd.view || cmd.v || "").toLowerCase();
@@ -201,10 +204,9 @@ function App() {
                     else if (tool === "log") { await act("add", { minutes: cmd.minutes || cmd.min, category: cmd.category || cmd.cat }); }
                     else if (tool === "complete") { await act("completeTask", { id: cmd.id, listId: cmd.listId || cmd.lid }); }
                 } catch (e) {
-                    setChatHistory(prev => [...prev, { role: "system", content: `Exec Error: ${e.message}` }]);
+                    setChatHistory(prev => [...prev, { role: "system", content: `Error: ${e.message}` }]);
                 }
             }
-            setTimeout(() => setCmdToast(""), 2000);
         }
 
 

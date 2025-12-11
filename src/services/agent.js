@@ -6,35 +6,33 @@ const AI_MODEL = "openai/gpt-oss-120b"; // Reverted to user preference
 // const AI_MODEL = "llama3-70b-8192";
 
 // COMPRESSED SYSTEM PROMPT
+// COMPRESSED SYSTEM PROMPT
 const SYSTEM_PROMPT = `You are AIMERS OS, the central nervous system of this user's productivity.
-You have FULL CONTROL. You see what they see.
+You have GOD-MODE ACCESS. You see EVERYTHING the user sees and more.
 
-### STATE & CONTEXT
+### STATE & CONTEXT (JSON)
 {{CONTEXT}}
 
-### TOOLS (Execute by outputting JSON)
+### YOUR CAPABILITIES
+1. **READ EVERYTHING**: The JSON above contains ALL pending tasks, ALL completed tasks today, full schedule, logs, and real-time stats.
+2. **FIND ANYTHING**: If user asks "Did I finish math?", SEARCH the 'all_tasks' list or 'work_logs_today'.
+3. **CONTROL**: You can Start/Stop timers, Log work, and Mark tasks complete.
+
+### TOOLS (Output JSON at end of response)
 - **Timer**:
-  - {"t":"start", "cat":"Subject", "min":60} -> Start new session.
-  - {"t":"stop"} -> Stop current.
-  - {"t":"pause"} -> Pause.
-  - {"t":"resume"} -> Resume.
-  - {"t":"reset"} -> Reset timer.
+  - {"t":"start", "cat":"Subject", "min":60} -> Start session.
+  - {"t":"stop"} -> Stop.
+  - {"t":"pause"} / {"t":"resume"} / {"t":"reset"}
 - **Data**:
-  - {"t":"log", "cat":"Reading", "min":30} -> Manually log past work.
-  - {"t":"complete", "id":"TASK_ID", "lid":"LIST_ID"} -> Check off task.
-  - {"t":"nav", "v":"stats|tasks|plan|log|mentor"} -> Switch screen.
+  - {"t":"log", "cat":"Reading", "min":30} -> Log past work.
+  - {"t":"complete", "id":"TASK_ID", "lid":"LIST_ID"} -> Mark task done.
+  - {"t":"nav", "v":"stats|tasks|plan|log|mentor"} -> Switch View.
 
 ### INSTRUCTIONS
-1. **Analyze Context**: Look at the Timer Status, Schedule, and Tasks below.
-2. **Intent Matching**:
-   - "Start Physics" -> Check if Physics is in schedule? usage start tool.
-   - "I'm done" -> stop tool.
-
-   - "Check reading task" -> LOOK at [TASKS] list below. Find "Reading" (fuzzy match). Get ID "123". -> {"t":"complete", "id":"123", "lid":"..."}
-   - NEVER ask user for Task ID. ALWAYS find it in [TASKS].
-   - "Stop and mark math done" -> {"t":"stop"} {"t":"complete","id":"...",...}
-3. **Response**: Brief, high-impact text.
-4. **JSON**: STRICTLY at end of message. Can output MULTIPLE JSON blocks for multi-step actions.
+1. **Analyze Context First**: Always read the JSON state before answering.
+2. **Be Specific**: If asked about a task, quote its exact status from the data.
+3. **Response Style**: Concise, high-impact, robotic but helpful.
+4. **JSON Output**: STRICTLY at the very end.
 `;
 
 export class Agent {
@@ -124,17 +122,54 @@ export class Agent {
         }
     }
 
+    // FULL CONTEXT - "GOD MODE"
     formatData(d) {
-        // DENSE REPRESENTATION
-        const { st = {}, tasks = [], schedule = [], todayLog = [], dash = { stats: {}, prediction: { breakdown: {} } } } = d || {};
+        const { st = {}, tasks = [], schedule = [], todayLog = [], dash = { stats: {}, prediction: { breakdown: {} }, history: [] } } = d || {};
+        const now = new Date();
 
-        return `
-[TIMER]: ${st.running ? 'RUNNING' : (st.paused ? 'PAUSED' : 'STOPPED')} | Cat: ${st.category || '-'} | Tgt: ${st.target}m
-[STATS]: Lvl ${dash.stats.level} | Streak ${dash.stats.streak} | XP ${dash.stats.totalXP} | Pred ${dash.prediction.xp} (S:${dash.prediction.breakdown.study}/T:${dash.prediction.breakdown.task})
-[LOGS]: ${todayLog.map(l => `${l.category}(${l.minutes}m)`).join(', ') || 'None'}
-[SCHED]: ${schedule.map(s => `"${s.title}"(${s.startIso}, ${s.minutes}m, ${s.status})`).join(' | ') || 'None'}
-[TASKS]:
-${tasks.filter(t => t.status !== 'completed').map(t => `- "${t.title}" (ID: "${t.id}", ListID: "${t.listId}")`).join('\n') || "(No pending tasks)"}
-`;
+        // Structured Context Object for maximum clarity
+        const contextObj = {
+            meta: {
+                time: now.toLocaleTimeString(),
+                date: now.toLocaleDateString(),
+                weekday: now.toLocaleDateString('en-US', { weekday: 'long' })
+            },
+            timer: {
+                status: st.running ? 'RUNNING' : (st.paused ? 'PAUSED' : 'STOPPED'),
+                activity: st.category || 'None',
+                duration_target: st.target,
+                elapsed: st.startTime ? Math.floor((Date.now() - st.startTime) / 1000) : 0
+            },
+            stats: {
+                level: dash.stats.level,
+                streak: dash.stats.streak,
+                total_xp: dash.stats.totalXP,
+                today_prediction_xp: dash.prediction.xp,
+                xp_breakdown: dash.prediction.breakdown
+            },
+            schedule_today: schedule.map(s => ({
+                title: s.title,
+                time: s.startIso,
+                duration: s.minutes,
+                status: s.status, // upcoming, active, completed
+                is_done: s.doneMins >= s.minutes
+            })),
+            work_logs_today: todayLog.map(l => ({
+                category: l.category,
+                minutes: l.minutes,
+                timestamp: l.timestamp // if available
+            })),
+            all_tasks: tasks.map(t => ({
+                id: t.id,
+                title: t.title,
+                status: t.status, // completed or active
+                due: t.dueTime || 'No Due Time',
+                list_id: t.listId,
+                completed_today: t.completedToday
+            }))
+        };
+
+        return JSON.stringify(contextObj, null, 2);
     }
 }
+

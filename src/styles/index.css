@@ -128,75 +128,73 @@ body {
     }
 }
 
-/* LIVE BACKGROUND - LIQUID METAL AURORA */
+/* LIVE BACKGROUND - OPTIMIZED PERFORMANCE */
 .space-bg {
     position: fixed;
     inset: 0;
+    background: radial-gradient(circle at center, #1a1a2e 0%, #000 100%);
     z-index: -1;
-    background: #050507;
     overflow: hidden;
     pointer-events: none;
+    /* Force GPU */
+    transform: translateZ(0);
 }
 
+/* Simple, low-cost ambient light instead of complex conic gradients */
 .nebula {
     position: absolute;
-    inset: -50%;
-    background:
-        radial-gradient(circle at 50% 50%, rgba(20, 20, 30, 0), transparent 20%),
-        conic-gradient(from 0deg at 50% 50%, rgba(112, 0, 255, 0.1), rgba(0, 242, 254, 0.1), rgba(255, 215, 0, 0.05), rgba(112, 0, 255, 0.1));
-    filter: blur(80px);
-    opacity: 0.6;
-    animation: rotateAurora 40s linear infinite;
-    transform-origin: center;
+    top: 50%;
+    left: 50%;
+    width: 200vw;
+    height: 200vw;
+    background: radial-gradient(circle, rgba(79, 172, 254, 0.15), transparent 60%);
+    transform: translate(-50%, -50%);
+    animation: pulseAmbient 10s ease-in-out infinite alternate;
 }
 
 .nebula::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background:
-        radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.05), transparent 40%),
-        radial-gradient(circle at 70% 70%, rgba(112, 0, 255, 0.15), transparent 40%);
-    mix-blend-mode: screen;
-    animation: pulseAurora 10s ease-in-out infinite alternate;
+    display: none;
 }
 
-@keyframes rotateAurora {
+/* Remove extra blending layer */
+
+@keyframes pulseAmbient {
     0% {
-        transform: rotate(0deg) scale(1.2);
+        opacity: 0.3;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    100% {
+        opacity: 0.6;
+        transform: translate(-50%, -50%) scale(1.1);
+    }
+}
+
+/* Drifting Particles - Simplified */
+.stars {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    background: #fff;
+    border-radius: 50%;
+    opacity: 0.6;
+    animation: driftUp 20s linear infinite;
+}
+
+@keyframes driftUp {
+    from {
+        transform: translateY(110vh);
+        opacity: 0;
     }
 
     50% {
-        transform: rotate(180deg) scale(1.5);
-    }
-
-    100% {
-        transform: rotate(360deg) scale(1.2);
-    }
-}
-
-@keyframes pulseAurora {
-    0% {
-        opacity: 0.4;
-        transform: scale(1);
-    }
-
-    100% {
         opacity: 0.8;
-        transform: scale(1.1);
     }
-}
 
-/* Drifting Particles */
-.stars {
-    position: absolute;
-    width: 3px;
-    height: 3px;
-    background: rgba(255, 255, 255, 0.6);
-    box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
-    border-radius: 50%;
-    animation: particleDrift 20s infinite linear;
-    opacity: 0;
+    to {
+        transform: translateY(-10vh);
+        opacity: 0;
+    }
 }
 
 @keyframes particleDrift {
@@ -221,68 +219,50 @@ body {
     }
 }
 
-/* LIQUID GLASS CARD - SOLID BUILD */
+/* LIQUID GLASS CARD - MINIMAL OBSIDIAN */
 .glass-card {
-    background: rgba(18, 18, 22, 0.65);
-    /* High opacity for solid feel */
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    /* Crisp border */
-    outline: 1px solid rgba(0, 0, 0, 0.8);
-    /* Deep outline for depth */
+    /* Minimal Attractive: Deep, clean obsidian implementation */
+    background: rgba(12, 12, 16, 0.92);
+    /* Higher opacity for performance & contrast */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    /* Subtle, refined border */
 
     border-radius: 36px;
     padding: 30px;
 
-    /* Heavy Blur + Saturation */
-    backdrop-filter: blur(80px) saturate(150%);
-    -webkit-backdrop-filter: blur(80px) saturate(150%);
+    /* Optimized Blur (Reduced from 80px) */
+    backdrop-filter: blur(20px) saturate(110%);
+    -webkit-backdrop-filter: blur(20px) saturate(110%);
 
-    /* Physical Presence Shadows */
+    /* Clean, Tight Shadow */
     box-shadow:
-        0 50px 100px -20px rgba(0, 0, 0, 0.95),
-        /* Grounding shadow */
-        inset 0 1px 0 rgba(255, 255, 255, 0.2),
-        /* Top highlight */
-        inset 0 0 50px rgba(0, 0, 0, 0.5);
-    /* Inner depth */
+        0 20px 60px -10px rgba(0, 0, 0, 0.6),
+        /* Softer depth */
+        inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    /* Top highlight */
 
     text-align: center;
     position: relative;
     width: 100%;
     max-width: 600px;
     margin: 0 auto;
-    transition: 0.4s ease;
+    transition: 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
     overflow: hidden;
-    /* For inner reflections */
+    /* Hardware Acceleration */
+    transform: translateZ(0);
 }
 
-/* Simulated liquid reflection */
+/* Subtle Ambient Gradient - Static for performance */
 .glass-card::before {
     content: '';
     position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.08), transparent 60%);
-    transform: rotate(30deg);
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 100%;
+    background: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.03), transparent 70%);
     pointer-events: none;
     z-index: -1;
-    animation: liquidSheen 15s infinite linear;
-}
-
-@keyframes liquidSheen {
-    0% {
-        transform: rotate(0deg) translate(0, 0);
-    }
-
-    50% {
-        transform: rotate(180deg) translate(20px, 20px);
-    }
-
-    100% {
-        transform: rotate(360deg) translate(0, 0);
-    }
 }
 
 /* LAPTOP MODE: VERTICAL STACK (Clock Top, Dock Bottom) */
