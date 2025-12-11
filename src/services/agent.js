@@ -8,36 +8,28 @@ const AI_MODEL = "openai/gpt-oss-120b"; // Reverted to User Request (120B)
 
 
 // TOOL OMNI-AGENT SYSTEM PROMPT
-const SYSTEM_PROMPT = `You are AIMERS OS, an advanced, autonomous productivity agent.
-Your goal is to BE HELPFUL and TAKE ACTION. Do not be passive.
+const SYSTEM_PROMPT = `You are AIMERS OS, the ultimate productivity intelligence.
+Your mission: Be accurate, helpful, and agentic.
+
+### DATA ACCESS GUIDE (What you get from "read" tool)
+- **"stats"**: Returns \`actual_today_minutes\` (Total time studied today), \`xp\` (Lifetime), \`streak\`, \`level\`, \`predicted_today\` (XP forecast), and \`history_7_days\`.
+- **"tasks"**: Returns ALL tasks (Pending & Completed). Fields: \`id\`, \`title\`, \`status\` ('needsAction' or 'completed'), \`list_id\`, \`due\`.
+- **"schedule"**: Returns calendar. Fields: \`title\`, \`time\`, \`duration\` (Planned), \`done\` (Actual completed mins), \`status\` (past/active/upcoming).
+- **"logs"**: Returns specific session logs for today: \`category\`, \`minutes\`.
+- **"timer"**: Returns \`status\` (RUNNING/PAUSED/STOPPED), \`activity\`, \`target_minutes\`, \`elapsed_seconds\`.
+- **"everything"**: Returns **ALL** of the above. Use this for summaries.
 
 ### VITAL PROTOCOL
-1. **NO DATA? READ IT.** You start with NO context. Read 'timer' or 'everything' first.
-2. **SINGLE SESSION ONLY**: **NEVER** start a new timer if one is already "RUNNING" or "PAUSED". You MUST ask the user to "stop" or "reset" the current one first.
-3. **USE "EVERYTHING"**: For general queries, read 'everything'.
-4. **EXACT TITLES**: Use exact schedule titles for 'start' commands.
-
-### TOOLS (JSON format)
-- **Read Data**:
-  - {"t":"read", "k":"timer"} -> Activity, Duration, Status.
-  - {"t":"read", "k":"tasks"} -> Full Task List (Active & Done).
-  - {"t":"read", "k":"schedule"} -> Calendar Events (Title, Time, Duration, DoneMins).
-  - {"t":"read", "k":"stats"} -> XP, Level, History.
-  - {"t":"read", "k":"logs"} -> Work Logs.
-  - {"t":"read", "k":"everything"} -> **GET ALL DATA** (Recommended for complex queries).
-
-- **Actions**:
-  - {"t":"start", "cat":"Subject", "min":60} -> Start Timer. (Use EXACT schedule title for 'cat' if applicable).
-  - {"t":"stop"} / {"t":"pause"} / {"t":"resume"} -> Timer Controls.
-  - {"t":"log", "cat":"Subject", "min":30} -> Log past session.
-  - {"t":"complete", "id":"TASK_ID", "lid":"LIST_ID"} -> Mark Task Done.
-  - {"t":"nav", "v":"view_name"} -> Switch View (Use when context implies it).
+1. **NO DATA? READ IT.** Start with zero knowledge. If asked "How much did I study?", READ 'stats' or 'logs' first.
+2. **TRUST THE DATA**: If 'actual_today_minutes' is 50, say "50 minutes". Do not guess.
+3. **SINGLE SESSION**: If Timer is RUNNING, do NOT start a new one. Ask to stop first.
+4. **EXACT TITLES**: Use exact 'schedule' titles when starting a session.
 
 ### SCENARIO LOGIC
-- **"Start studying math"** -> {"t":"start", "cat":"Math", "min":60} (Generic)
-- **"Start my 9am session"** -> {"t":"read", "k":"schedule"} -> [Found "Deep Work: Coding"] -> {"t":"start", "cat":"Deep Work: Coding", "min":90} (Exact Match)
-- **"What's next?"** -> {"t":"read", "k":"schedule"} AND {"t":"read", "k":"tasks"}
-- **"How am I doing?"** -> {"t":"read", "k":"stats"}
+- **"How much XP today?"** -> {"t":"read", "k":"stats"} -> Answer using \`actual_today_minutes\` or calculated XP.
+- **"What tasks are left?"** -> {"t":"read", "k":"tasks"} -> Filter for 'status' !== 'completed'.
+- **"Start math"** -> {"t":"start", "cat":"Math", "min":60}
+- **"Reset timer"** -> {"t":"reset"}
 
 ### OUTPUT FORMAT
 - Reply comfortably as a human.
@@ -79,8 +71,9 @@ export class Agent {
         }
 
         // Prepare Conversation (Context Optimized: System + Last 5)
+        const nowIST = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "full", timeStyle: "medium" });
         const messages = [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: SYSTEM_PROMPT + `\n\n[CURRENT TIME (IST): ${nowIST}]` },
             ...this.history.slice(-5)
         ];
 
@@ -157,21 +150,34 @@ export class Agent {
         if (key === 'everything' || key === 'all') {
             return {
                 timer: { status: st.running ? 'RUNNING' : 'STOPPED', activity: st.category, duration: st.target, elapsed: st.startTime ? Math.floor((Date.now() - st.startTime) / 1000) : 0 },
-                stats: { level: dash.stats.level, xp: dash.stats.totalXP, streak: dash.stats.streak, graph: dash.history },
+                stats: {
+                    level: dash.stats.level,
+                    xp: dash.stats.totalXP,
+                    streak: dash.stats.streak,
+                    prediction: dash.prediction, /* Explicitly include Prediction {xp, breakdown} */
+                    graph: dash.history
+                },
                 tasks: tasks.map(t => ({ id: t.id, title: t.title, status: t.status, list: t.listId, due: t.dueTime })),
                 schedule: schedule.map(s => ({ title: s.title, time: s.startIso, duration: s.minutes, done: s.doneMins, status: s.status })),
                 logs: todayLog
             };
         }
 
-        if (key === 'timer') return { status: st.running ? 'RUNNING' : 'STOPPED', activity: st.category, duration: st.target, elapsed: st.startTime ? Math.floor((Date.now() - st.startTime) / 1000) : 0 };
+        if (key === 'timer') return {
+            status: st.running ? 'RUNNING' : (st.paused ? 'PAUSED' : 'STOPPED'),
+            activity: st.category,
+            target_minutes: st.target,
+            elapsed_seconds: st.startTime ? Math.floor((Date.now() - st.startTime) / 1000) : 0
+        };
 
         if (key === 'stats') {
             return {
                 level: dash.stats.level,
                 streak: dash.stats.streak,
                 xp: dash.stats.totalXP,
-                breakdown: dash.prediction.breakdown,
+                predicted_today: dash.prediction ? dash.prediction.xp : 0, /* Added Total Predicted */
+                actual_today_minutes: todayLog.reduce((a, b) => a + b.minutes, 0), /* Calculated Truth */
+                breakdown: dash.prediction ? dash.prediction.breakdown : {},
                 history_7_days: dash.history || []
             };
         }

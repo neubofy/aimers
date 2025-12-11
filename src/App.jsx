@@ -136,21 +136,26 @@ function App() {
     // Initialize Agent ref (persists across renders)
     const agentRef = useRef(null);
 
+    // Keep a Ref updated with latest state for the Agent to access "live"
+    const stateRef = useRef({ st, tasks, schedule, todayLog, dash });
+    useEffect(() => {
+        stateRef.current = { st, tasks, schedule, todayLog, dash };
+    }, [st, tasks, schedule, todayLog, dash]);
+
     // Initialize agent on mount or key change
     useEffect(() => {
-        if (!agentRef.current) {
-            import('./services/agent').then(({ Agent }) => {
-                agentRef.current = new Agent(groqKey,
-                    // Context Provider
-                    () => ({ st, tasks, schedule, todayLog, dash }),
-                    // Action Handler (not used in Agent class internally yet, but good for future)
-                    act
-                );
-            });
-        } else {
+        const initAgent = async () => {
+            const { Agent } = await import('./services/agent');
+            // Context Provider now reads from stateRef.current (Fresh Data!)
+            agentRef.current = new Agent(groqKey, () => stateRef.current);
+        };
+
+        if (!agentRef.current && groqKey) {
+            initAgent();
+        } else if (agentRef.current) {
             agentRef.current.updateKey(groqKey);
         }
-    }, [groqKey, st, tasks, schedule, todayLog, dash]); // Update context refs if needed, or Agent fetches fresh via closure
+    }, [groqKey]);
 
     const sendToMentor = async (overrideText = null) => {
         const text = overrideText || msgInput;
