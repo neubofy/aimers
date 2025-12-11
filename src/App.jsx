@@ -9,10 +9,10 @@ import LogModal from './components/modals/LogModal';
 import MentorModal from './components/modals/MentorModal';
 import StartSelectorModal from './components/modals/StartSelectorModal';
 import { callApi } from './services/api';
-import { Sound } from './services/sound';
 import { Voice } from './services/voice';
 
 const AI_MODEL = "openai/gpt-oss-120b";
+
 
 function App() {
     const [auth, setAuth] = useState(!!localStorage.getItem("aimers_key"));
@@ -62,17 +62,27 @@ function App() {
     }, [listening]);
 
     const act = async (a, p = {}) => {
+        // SILENT MODE: No Toast
         if (['start', 'stop', 'pause', 'add', 'completeTask'].includes(a)) {
-            const cmdName = a === 'add' ? 'LOG' : a.toUpperCase();
-            const cmdDetail = p.category ? ` ${p.category}` : (p.title ? ` ${p.title}` : '');
-            setCmdToast(`CMD: ${cmdName}${cmdDetail}`);
-            setTimeout(() => setCmdToast(""), 4000);
+            // const cmdName = a === 'add' ? 'LOG' : a.toUpperCase();
+            // setCmdToast... removed
         }
-        if (a !== 'reset') { setSync("active"); Sound.play('click'); }
+
+        // SILENT MODE: No Sound
+        if (a !== 'reset') { setSync("active"); /* Sound.play('click'); */ }
+
         if (a === 'start' && st.running) return alert("Session already active!");
-        if (a === 'start') { Sound.play('start'); setSt({ running: true, paused: false, startTime: Date.now(), category: p.category || 'Focus', target: p.target || 120 }); setModal(null); }
+        if (a === 'start') {
+            // Sound.play('start'); 
+            setSt({ running: true, paused: false, startTime: Date.now(), category: p.category || 'Focus', target: p.target || 120 });
+            setModal(null);
+        }
         if (a === 'stop') { setSt({ ...st, running: false }); setElapsed(0); }
-        if (a === 'reset') { Sound.play('click'); setSt({ running: false, paused: false, startTime: null, category: 'Focus', target: 120 }); setElapsed(0); setPauseLeft(120); setSync("active"); }
+        if (a === 'reset') {
+            // Sound.play('click'); 
+            setSt({ running: false, paused: false, startTime: null, category: 'Focus', target: 120 });
+            setElapsed(0); setPauseLeft(120); setSync("active");
+        }
         if (a === 'pause') setSt({ ...st, running: true, paused: true, pauseExpiry: Date.now() + 120000 });
         if (a === 'resume') setSt({ ...st, running: true, paused: false });
         if (a === 'completeTask') setTasks(prev => prev.map(t => t.id === p.id ? { ...t, status: 'completed' } : t));
@@ -164,12 +174,14 @@ function App() {
         const response = await agentRef.current.chat(text);
 
         // Handle Response
+        // Handle Response
         if (response.text) {
             // FILTER OUT JSON ARTIFACTS COMPLETELY from user view
             const cleanText = response.text.replace(/```json[\s\S]*?```/g, "").trim();
             if (cleanText) {
                 setChatHistory(prev => [...prev, { role: "assistant", content: cleanText }]);
-                Voice.speak(cleanText);
+                // SILENT AI: No Voice
+                // Voice.speak(cleanText);
             }
         }
 
