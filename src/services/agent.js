@@ -2,7 +2,10 @@
  * Aimers OS - Smart Agent Service (Token Optimized & Robust Parsing)
  */
 
-const AI_MODEL = "mixtral-8x7b-32768";
+
+const AI_MODEL = "openai/gpt-oss-120b"; // Reverted to User Request (120B)
+// const AI_MODEL = "llama3-8b-8192";
+
 
 // TOOL OMNI-AGENT SYSTEM PROMPT
 const SYSTEM_PROMPT = `You are AIMERS OS, an advanced, autonomous productivity agent.
