@@ -230,7 +230,10 @@ function App() {
     const handleLogin = () => { if (passInput === "aimers2025") { localStorage.setItem("aimers_key", "aimers2025"); setAuth(true); } else { alert("Access Denied"); } };
     const saveGroqKey = (k) => { localStorage.setItem("aimers_groq", k); setGroqKey(k); };
     const resetGroqKey = () => { localStorage.removeItem("aimers_groq"); setGroqKey(""); setChatHistory(p => [...p, { role: "system", content: "KEY RESET." }]); };
-    const clearChat = () => { setChatHistory([{ role: "system", content: "Chat Cleared." }]); };
+    const clearChat = () => {
+        setChatHistory([{ role: "system", content: "Chat Cleared." }]);
+        if (agentRef.current) agentRef.current.clearMemory();
+    };
 
     // KEYBOARD SHORTCUTS
     useEffect(() => {

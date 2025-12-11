@@ -1,175 +1,201 @@
 /**
- * Aimers OS - Smart Agent Service (Token Optimized)
+ * Aimers OS - Smart Agent Service (Token Optimized & Robust Parsing)
  */
 
-const AI_MODEL = "openai/gpt-oss-120b"; // Reverted to user preference
-// const AI_MODEL = "llama3-70b-8192";
+const AI_MODEL = "mixtral-8x7b-32768";
 
-// COMPRESSED SYSTEM PROMPT
-// COMPRESSED SYSTEM PROMPT
-const SYSTEM_PROMPT = `You are AIMERS OS, the central nervous system of this user's productivity.
-You have GOD-MODE ACCESS. You see EVERYTHING the user sees and more.
+// TOOL OMNI-AGENT SYSTEM PROMPT
+const SYSTEM_PROMPT = `You are AIMERS OS, an advanced, autonomous productivity agent.
+Your goal is to BE HELPFUL and TAKE ACTION. Do not be passive.
 
-### STATE & CONTEXT (JSON)
-{{CONTEXT}}
+### VITAL PROTOCOL
+1. **NO DATA? READ IT.** You start with NO context. Read 'timer' or 'everything' first.
+2. **SINGLE SESSION ONLY**: **NEVER** start a new timer if one is already "RUNNING" or "PAUSED". You MUST ask the user to "stop" or "reset" the current one first.
+3. **USE "EVERYTHING"**: For general queries, read 'everything'.
+4. **EXACT TITLES**: Use exact schedule titles for 'start' commands.
 
-### YOUR CAPABILITIES
-1. **READ EVERYTHING**: The JSON above contains ALL pending tasks, ALL completed tasks today, full schedule, logs, and real-time stats.
-2. **FIND ANYTHING**: If user asks "Did I finish math?", SEARCH the 'all_tasks' list or 'work_logs_today'.
-3. **CONTROL**: You can Start/Stop timers, Log work, and Mark tasks complete.
+### TOOLS (JSON format)
+- **Read Data**:
+  - {"t":"read", "k":"timer"} -> Activity, Duration, Status.
+  - {"t":"read", "k":"tasks"} -> Full Task List (Active & Done).
+  - {"t":"read", "k":"schedule"} -> Calendar Events (Title, Time, Duration, DoneMins).
+  - {"t":"read", "k":"stats"} -> XP, Level, History.
+  - {"t":"read", "k":"logs"} -> Work Logs.
+  - {"t":"read", "k":"everything"} -> **GET ALL DATA** (Recommended for complex queries).
 
-### TOOLS (Output JSON at end of response)
-- **Timer**:
-  - {"t":"start", "cat":"Subject", "min":60} -> Start session.
-  - {"t":"stop"} -> Stop.
-  - {"t":"pause"} / {"t":"resume"} / {"t":"reset"}
-- **Data**:
-  - {"t":"log", "cat":"Reading", "min":30} -> Log past work.
-  - {"t":"complete", "id":"TASK_ID", "lid":"LIST_ID"} -> Mark task done.
-  - {"t":"nav", "v":"stats|tasks|plan|log|mentor"} -> Switch View.
+- **Actions**:
+  - {"t":"start", "cat":"Subject", "min":60} -> Start Timer. (Use EXACT schedule title for 'cat' if applicable).
+  - {"t":"stop"} / {"t":"pause"} / {"t":"resume"} -> Timer Controls.
+  - {"t":"log", "cat":"Subject", "min":30} -> Log past session.
+  - {"t":"complete", "id":"TASK_ID", "lid":"LIST_ID"} -> Mark Task Done.
+  - {"t":"nav", "v":"view_name"} -> Switch View (Use when context implies it).
 
-### INSTRUCTIONS
-1. **Analyze Context First**: Always read the JSON state before answering.
-2. **Be Specific**: If asked about a task, quote its exact status from the data.
-3. **Response Style**: Concise, high-impact, robotic but helpful.
-4. **JSON Output**: STRICTLY at the very end.
+### SCENARIO LOGIC
+- **"Start studying math"** -> {"t":"start", "cat":"Math", "min":60} (Generic)
+- **"Start my 9am session"** -> {"t":"read", "k":"schedule"} -> [Found "Deep Work: Coding"] -> {"t":"start", "cat":"Deep Work: Coding", "min":90} (Exact Match)
+- **"What's next?"** -> {"t":"read", "k":"schedule"} AND {"t":"read", "k":"tasks"}
+- **"How am I doing?"** -> {"t":"read", "k":"stats"}
+
+### OUTPUT FORMAT
+- Reply comfortably as a human.
+- END with JSON commands.
 `;
 
 export class Agent {
     constructor(apiKey, contextProvider) {
         this.apiKey = apiKey;
         this.contextProvider = contextProvider;
-        // Industry Standard: Local Persistence for Session Memory
         const saved = localStorage.getItem("aimers_memory");
         this.history = saved ? JSON.parse(saved) : [{ role: 'system', content: 'SYSTEM ONLINE' }];
     }
 
     saveMemory() {
-        // Sliding Window: Keep last 15 messages to manage context window
-        if (this.history.length > 15) {
-            this.history = this.history.slice(-15);
-        }
+        if (this.history.length > 10) this.history = this.history.slice(-10);
         localStorage.setItem("aimers_memory", JSON.stringify(this.history));
+    }
+
+    clearMemory() {
+        this.history = [{ role: 'system', content: 'SYSTEM ONLINE' }];
+        localStorage.removeItem("aimers_memory");
     }
 
     updateKey(key) { this.apiKey = key; }
 
-    async chat(userText) {
+    // Multi-Turn Chat Loop
+    async chat(userText, depth = 0) {
         if (!this.apiKey) return { text: "API Key missing.", command: null };
 
-        // 1. Get Fresh Data
-        const data = this.contextProvider();
+        // Safety Break: Prevent infinite loops if AI keeps asking for data
+        if (depth > 5) {
+            return { text: "I'm having trouble retrieving that. Let's try again.", command: null };
+        }
 
-        // 2. Format Context (Dense & Smart)
-        const contextStr = this.formatData(data);
-        const finalPrompt = SYSTEM_PROMPT.replace('{{CONTEXT}}', contextStr);
+        // Add User Message only on first call
+        if (depth === 0) {
+            this.history.push({ role: 'user', content: userText });
+        }
 
-        // 3. Prepare Request (Keep history short)
+        // Prepare Conversation (Context Optimized: System + Last 5)
         const messages = [
-            { role: 'system', content: finalPrompt },
-            ...this.history.slice(-6),
-            { role: 'user', content: userText }
+            { role: 'system', content: SYSTEM_PROMPT },
+            ...this.history.slice(-5)
         ];
 
         try {
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    model: AI_MODEL,
-                    messages: messages,
-                    temperature: 0.3, // Lower temp for precise tool usage
-                    max_tokens: 500
-                })
+                body: JSON.stringify({ model: AI_MODEL, messages: messages, temperature: 0.2, max_tokens: 1000 })
             });
 
             const resJson = await res.json();
             if (resJson.error) throw new Error(resJson.error.message);
 
             const aiContent = resJson.choices[0]?.message?.content || "";
-
-            // 4. Extraction Logic (Regex)
-            // 4. Extraction Logic (Regex Global)
-            let commands = [];
             let displayText = aiContent;
+            let commands = [];
 
-            // Regex to find ALL JSON blocks matching the compressed format
-            const cmdMatches = [...aiContent.matchAll(/\{"t":.*?\}/g)];
+            // --- ROBUST COMMAND PARSING ---
+            const rawMatches = [...aiContent.matchAll(/\{[\s\S]*?\}/g)];
+            if (rawMatches.length > 0) {
+                commands = rawMatches
+                    .map(m => { try { return JSON.parse(m[0]); } catch (e) { return null; } })
+                    .filter(c => c && c.t);
 
-            if (cmdMatches.length > 0) {
-                try {
-                    commands = cmdMatches.map(m => JSON.parse(m[0]));
-                    // Remove all commands from display text
-                    cmdMatches.forEach(m => { displayText = displayText.replace(m[0], ""); });
-                    displayText = displayText.trim();
-                } catch (e) { console.error("JSON Parse Error", e); }
-            } else {
-                // Fallback for standard JSON
-                const stdMatch = aiContent.match(/\{[\s\S]*?\}/);
-                if (stdMatch) {
-                    try { commands = [JSON.parse(stdMatch[0])]; displayText = aiContent.replace(stdMatch[0], '').trim(); } catch (e) { }
-                }
+                rawMatches.forEach(m => {
+                    try { if (JSON.parse(m[0]).t) displayText = displayText.replace(m[0], ""); } catch (e) { }
+                });
             }
 
-            this.history.push({ role: 'user', content: userText });
-            this.history.push({ role: 'assistant', content: aiContent });
-            this.saveMemory();
+            // CLEANUP: AGGRESSIVE REMOVAL of any remaining JSON-like structures at the end
+            displayText = displayText.replace(/\{[\s\S]*?\}/g, "").trim();
 
-            return { text: displayText, commands };
+            // INTERNAL LOOP: Handle "read" commands immediately
+            const readCmds = commands.filter(c => c.t === 'read');
+            const actionCmds = commands.filter(c => c.t !== 'read');
+
+            // If AI wants to read data, we fetch it and RECURSE SILENTLY
+            if (readCmds.length > 0) {
+                const data = this.contextProvider(); // Get fresh state
+                let observations = [];
+
+                for (const rc of readCmds) {
+                    const val = this.fetchDataSubset(data, rc.k);
+                    observations.push(`[DATA: ${rc.k.toUpperCase()}]\n${JSON.stringify(val, null, 2)}`);
+                }
+
+                this.history.push({ role: 'assistant', content: aiContent });
+                this.history.push({ role: 'system', content: observations.join("\n\n") + "\n\n[SYSTEM: Data retrieved. Perform actions or answer now.]" });
+
+                return this.chat("", depth + 1);
+            }
+
+            // FINAL RESPONSE
+            if (depth === 0) {
+                this.history.push({ role: 'assistant', content: aiContent });
+                this.saveMemory();
+            } else {
+                this.history.push({ role: 'assistant', content: aiContent });
+                this.saveMemory();
+            }
+
+            return { text: displayText, commands: actionCmds };
 
         } catch (e) {
             return { text: `Error: ${e.message}`, command: null };
         }
     }
 
-    // FULL CONTEXT - "GOD MODE"
-    formatData(d) {
-        const { st = {}, tasks = [], schedule = [], todayLog = [], dash = { stats: {}, prediction: { breakdown: {} }, history: [] } } = d || {};
-        const now = new Date();
+    // SLICED DATA ACCESS (Token Efficient)
+    fetchDataSubset(d, key) {
+        const { st = {}, tasks = [], schedule = [], todayLog = [], dash = { stats: {}, prediction: {}, history: [] } } = d || {};
 
-        // Structured Context Object for maximum clarity
-        const contextObj = {
-            meta: {
-                time: now.toLocaleTimeString(),
-                date: now.toLocaleDateString(),
-                weekday: now.toLocaleDateString('en-US', { weekday: 'long' })
-            },
-            timer: {
-                status: st.running ? 'RUNNING' : (st.paused ? 'PAUSED' : 'STOPPED'),
-                activity: st.category || 'None',
-                duration_target: st.target,
-                elapsed: st.startTime ? Math.floor((Date.now() - st.startTime) / 1000) : 0
-            },
-            stats: {
+        // EVERYTHING OPTION
+        if (key === 'everything' || key === 'all') {
+            return {
+                timer: { status: st.running ? 'RUNNING' : 'STOPPED', activity: st.category, duration: st.target, elapsed: st.startTime ? Math.floor((Date.now() - st.startTime) / 1000) : 0 },
+                stats: { level: dash.stats.level, xp: dash.stats.totalXP, streak: dash.stats.streak, graph: dash.history },
+                tasks: tasks.map(t => ({ id: t.id, title: t.title, status: t.status, list: t.listId, due: t.dueTime })),
+                schedule: schedule.map(s => ({ title: s.title, time: s.startIso, duration: s.minutes, done: s.doneMins, status: s.status })),
+                logs: todayLog
+            };
+        }
+
+        if (key === 'timer') return { status: st.running ? 'RUNNING' : 'STOPPED', activity: st.category, duration: st.target, elapsed: st.startTime ? Math.floor((Date.now() - st.startTime) / 1000) : 0 };
+
+        if (key === 'stats') {
+            return {
                 level: dash.stats.level,
                 streak: dash.stats.streak,
-                total_xp: dash.stats.totalXP,
-                today_prediction_xp: dash.prediction.xp,
-                xp_breakdown: dash.prediction.breakdown
-            },
-            schedule_today: schedule.map(s => ({
+                xp: dash.stats.totalXP,
+                breakdown: dash.prediction.breakdown,
+                history_7_days: dash.history || []
+            };
+        }
+
+        if (key === 'schedule') {
+            return schedule.map(s => ({
                 title: s.title,
                 time: s.startIso,
                 duration: s.minutes,
-                status: s.status, // upcoming, active, completed
-                is_done: s.doneMins >= s.minutes
-            })),
-            work_logs_today: todayLog.map(l => ({
-                category: l.category,
-                minutes: l.minutes,
-                timestamp: l.timestamp // if available
-            })),
-            all_tasks: tasks.map(t => ({
+                done: s.doneMins,
+                status: s.status, // 'past', 'active', 'upcoming'
+                is_completed: s.doneMins >= s.minutes
+            }));
+        }
+
+        if (key === 'tasks') {
+            return tasks.map(t => ({
                 id: t.id,
                 title: t.title,
-                status: t.status, // completed or active
-                due: t.dueTime || 'No Due Time',
+                status: t.status,
                 list_id: t.listId,
-                completed_today: t.completedToday
-            }))
-        };
+                due: t.dueTime
+            }));
+        }
 
-        return JSON.stringify(contextObj, null, 2);
+        if (key === 'logs') return todayLog.map(l => ({ category: l.category, minutes: l.minutes }));
+
+        return { error: "Unknown data key" };
     }
 }
-
