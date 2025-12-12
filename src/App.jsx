@@ -74,8 +74,21 @@ function App() {
         return () => clearInterval(i);
     }, [auth]);
 
-    // SHORTCUTS
+    // BROWSER HISTORY & SHORTCUTS
     useEffect(() => {
+        if (modal) {
+            // Only push if the current history state doesn't match the new modal
+            // This prevents pushing a new state when we arrived here via Back/Forward button
+            if (window.history.state?.modal !== modal) {
+                window.history.pushState({ modal }, "", window.location.pathname);
+            }
+        }
+
+        const handlePopState = (e) => {
+            // Restore modal from history state (or close if null)
+            setModal(e.state?.modal || null);
+        };
+
         const handleKeyDown = (e) => {
             if (e.ctrlKey && e.code === 'Space') {
                 e.preventDefault();
@@ -84,21 +97,14 @@ function App() {
             }
         };
 
-        const handleMouseUp = (e) => {
-            // Button 3 is 'Back' button on mice
-            if (e.button === 3) {
-                setModal(null);
-            }
-        };
-
+        window.addEventListener('popstate', handlePopState);
         window.addEventListener('keydown', handleKeyDown);
-        window.addEventListener('mouseup', handleMouseUp);
 
         return () => {
+            window.removeEventListener('popstate', handlePopState);
             window.removeEventListener('keydown', handleKeyDown);
-            window.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [listening]);
+    }, [modal]);
 
     // ACTION QUEUE SYSTEM
     const actionQueue = useRef([]);
@@ -381,7 +387,7 @@ function App() {
         w.document.body.className = "pip-mode"; w.addEventListener("pagehide", () => setPip(null)); setPip(w);
     };
 
-    const goBack = () => setModal(null);
+    const goBack = () => window.history.back();
 
     if (!auth) return (
         <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}>
