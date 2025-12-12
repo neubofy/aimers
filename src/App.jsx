@@ -9,6 +9,7 @@ import LogModal from './components/modals/LogModal';
 import MentorModal from './components/modals/MentorModal';
 import StartSelectorModal from './components/modals/StartSelectorModal';
 import MathModal from './components/modals/MathModal';
+import AlertsModal from './components/modals/AlertsModal';
 import { callApi } from './services/api';
 import { Voice } from './services/voice';
 
@@ -23,6 +24,12 @@ function App() {
     const [tasks, setTasks] = useState([]);
     const [schedule, setSchedule] = useState([]);
     const [todayLog, setTodayLog] = useState([]);
+    const [alerts, setAlerts] = useState([]);
+
+    const [menuOpen, setMenuOpen] = useState(false);
+
+    // Close menu when clicking outside (simple version: close on any click outside header? or just auto-close on selection)
+    // Actually, let's just simple toggle.
 
     const [elapsed, setElapsed] = useState(0);
     const [pauseLeft, setPauseLeft] = useState(120);
@@ -209,24 +216,32 @@ function App() {
             setSync("");
 
             // HANDLE NOTIFICATIONS
-            if (ctx && ctx.notifications && ctx.notifications.length > 0) {
-                ctx.notifications.forEach(n => {
-                    // Only notify for action-oriented or high-value alerts to avoid spam
-                    // 'motivation' is good too if rigorous.
-                    // Prevent duplicate spam? Browser handles some, but we pull every 5m.
-                    // Simple check: Notification.permission
-                    if ("Notification" in window && Notification.permission === "granted") {
-                        if (['action', 'warning', 'success', 'motivation'].includes(n.type)) {
-                            new Notification(`AIMERS OS: ${n.type.toUpperCase()}`, {
-                                body: n.msg,
-                                icon: '/icon-192.png' // Assuming icon exists
-                            });
+            if (ctx && ctx.notifications) {
+                setAlerts(ctx.notifications);
+
+                if (ctx.notifications.length > 0) {
+                    ctx.notifications.forEach(n => {
+                        // Only notify for action-oriented or high-value alerts to avoid spam
+                        // 'motivation' is good too if rigorous.
+                        // Prevent duplicate spam? Browser handles some, but we pull every 5m.
+                        // Simple check: Notification.permission
+                        if ("Notification" in window && Notification.permission === "granted") {
+                            if (['action', 'warning', 'success', 'motivation'].includes(n.type)) {
+                                new Notification(`AIMERS OS: ${n.type.toUpperCase()}`, {
+                                    body: n.msg,
+                                    icon: '/icon-192.png' // Assuming icon exists
+                                });
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
 
-        } catch (e) { setSync(""); if (e.message === "NO_KEY" || e.message.includes("Wrong")) handleLogout(); }
+        } catch (e) {
+            console.error("SYNC FULL ERROR:", e);
+            setSync("");
+            if (e.message === "NO_KEY" || e.message.includes("Wrong")) handleLogout();
+        }
     };
 
     const refreshState = async () => { try { setSt(await callApi("getState")); } catch (e) { } };
@@ -488,28 +503,84 @@ function App() {
                     backdropFilter: 'blur(12px)',
                     borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
                 }}>
-                    <div className="header-left">
+                    <div className="header-left" style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
                         <span style={{ fontSize: "1.1rem", fontWeight: 700, letterSpacing: 1, color: '#fff', opacity: 0.9 }}>AIMERS OS</span>
+
+                        {/* NOTIFICATION BELL */}
+                        <div style={{ position: 'relative', cursor: 'pointer', display: 'flex' }} onClick={() => setModal('alerts')}>
+                            <span style={{ fontSize: '1.2rem', opacity: alerts.length > 0 ? 1 : 0.5 }}>🔔</span>
+                            {alerts.length > 0 && (
+                                <span style={{
+                                    position: 'absolute', top: -5, right: -5,
+                                    background: '#ff4757', color: '#fff',
+                                    fontSize: '0.6rem', padding: '2px 5px',
+                                    borderRadius: '50%', fontWeight: 700
+                                }}>
+                                    {alerts.length}
+                                </span>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        {/* SYNC BUTTON */}
-                        <button className="header-btn gold" onClick={refreshFull} title="Sync">
-                            <i className={`fas fa-sync-alt ${sync === 'active' ? 'spin' : ''}`}></i>
-                            <span>SYNC</span>
-                        </button>
+                    <div className="header-right">
+                        {/* DESKTOP NAV */}
+                        <div className="header-actions-desktop" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <button className="header-btn gold" onClick={refreshFull} title="Sync">
+                                <i className={`fas fa-sync-alt ${sync === 'active' ? 'spin' : ''}`}></i>
+                                <span>SYNC</span>
+                            </button>
+                            <button className="header-btn" onClick={togglePiP} title="Pop Out">
+                                <span>⤢</span>
+                                <span>POP OUT</span>
+                            </button>
+                            <button className="header-btn danger" onClick={handleLogout} title="Logout">
+                                <i className="fas fa-power-off"></i>
+                                <span>EXIT</span>
+                            </button>
+                        </div>
 
-                        {/* PIP BUTTON */}
-                        <button className="header-btn" onClick={togglePiP} title="Pop Out">
-                            <span>⤢</span>
-                            <span>POP OUT</span>
-                        </button>
+                        {/* MOBILE NAV */}
+                        <div className="header-actions-mobile">
+                            <button
+                                onClick={() => setMenuOpen(!menuOpen)}
+                                style={{
+                                    background: 'transparent', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer', padding: '5px'
+                                }}
+                            >
+                                <i className={menuOpen ? "fas fa-times" : "fas fa-bars"}></i>
+                            </button>
 
-                        {/* LOGOUT BUTTON */}
-                        <button className="header-btn danger" onClick={handleLogout} title="Logout">
-                            <i className="fas fa-power-off"></i>
-                            <span>EXIT</span>
-                        </button>
+                            {menuOpen && (
+                                <div className="menu-dropdown" style={{
+                                    position: 'absolute', top: '50px', right: '0',
+                                    width: '200px', background: 'rgba(20, 20, 25, 0.95)',
+                                    border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '16px',
+                                    padding: '15px', display: 'flex', flexDirection: 'column', gap: '12px',
+                                    zIndex: 999, boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+                                    backdropFilter: 'blur(20px)'
+                                }}>
+                                    <button className="header-btn gold" onClick={() => { refreshFull(); setMenuOpen(false); }} title="Sync" style={{ justifyContent: 'center', width: '100%' }}>
+                                        <i className={`fas fa-sync-alt ${sync === 'active' ? 'spin' : ''}`}></i>
+                                        <span>SYNC DATA</span>
+                                    </button>
+                                    <button className="header-btn" onClick={() => { togglePiP(); setMenuOpen(false); }} title="Pop Out" style={{ justifyContent: 'center', width: '100%' }}>
+                                        <span>⤢</span>
+                                        <span>POP OUT MODE</span>
+                                    </button>
+                                    {installPrompt && (
+                                        <button className="header-btn" onClick={() => { handleInstall(); setMenuOpen(false); }} style={{ justifyContent: 'center', width: '100%', borderColor: '#00f2fe', color: '#00f2fe' }}>
+                                            <i className="fas fa-download"></i>
+                                            <span>INSTALL APP</span>
+                                        </button>
+                                    )}
+                                    <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '5px 0' }}></div>
+                                    <button className="header-btn danger" onClick={() => { handleLogout(); setMenuOpen(false); }} title="Logout" style={{ justifyContent: 'center', width: '100%' }}>
+                                        <i className="fas fa-power-off"></i>
+                                        <span>EXIT SYSTEM</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -579,6 +650,7 @@ function App() {
                         {/* PAGE CONTENT BODY */}
                         {modal === 'mentor' && <MentorModal groqKey={groqKey} chatHistory={chatHistory} aiThinking={aiThinking} listening={listening} msgInput={msgInput} setMsgInput={setMsgInput} saveGroqKey={saveGroqKey} clearChat={clearChat} resetGroqKey={resetGroqKey} toggleVoice={toggleVoice} sendToMentor={sendToMentor} syncData={refreshFull} />}
                         {modal === 'start-selector' && <StartSelectorModal bestSuggestion={bestSuggestion} act={act} customTarget={customTarget} setCustomTarget={setCustomTarget} />}
+                        {modal === 'alerts' && <AlertsModal alerts={alerts} onClear={() => setAlerts([])} onClose={goBack} />}
                         {modal === 'plan' && <PlanModal schedule={schedule} st={st} act={act} setModal={setModal} />}
                         {modal === 'stats' && <StatsModal dash={dash} />}
                         {modal === 'tasks' && <TasksModal tasks={tasks} taskTab={taskTab} setTaskTab={setTaskTab} act={act} />}

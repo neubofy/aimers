@@ -2302,6 +2302,155 @@ body.pip-mode .cmd-toast {
     transform: rotate(15deg);
 }
 
+/* HEADER RESPONSIVE TOGGLES */
+.header-actions-mobile {
+    display: none;
+}
+
+/* MOBILE OPTIMIZATIONS */
+@media (max-width: 768px) {
+
+    /* HEADER TOGGLE */
+    .header-actions-desktop {
+        display: none !important;
+    }
+
+    .header-actions-mobile {
+        display: block !important;
+        position: relative;
+    }
+
+    #root {
+        padding: 15px;
+        padding-top: 50px;
+        /* Space for fixed header */
+        justify-content: flex-start;
+        gap: 20px;
+    }
+
+    /* GLOBAL HEADER MOBILE */
+    .app-header {
+        padding: 12px 15px;
+        background: rgba(0, 0, 0, 0.85);
+        /* Darker for readability */
+        backdrop-filter: blur(20px);
+    }
+
+    .header-left span {
+        font-size: 0.9rem !important;
+    }
+
+    /* CLOCK CARD MOBILE */
+    .glass-card {
+        padding: 25px 20px;
+        width: 100%;
+        margin-top: 10px;
+        /* Push down below header */
+    }
+
+    .timer-wrapper {
+        width: 220px;
+        height: 220px;
+    }
+
+    .time-display {
+        font-size: 3rem;
+    }
+
+    /* APP DOCK GRID MOBILE */
+    .app-dock {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        /* 2 Cols for better touch targets */
+        gap: 15px;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 0;
+        width: 100%;
+    }
+
+    .app-icon {
+        width: 100% !important;
+        height: auto;
+        aspect-ratio: 1 / 1;
+        background: rgba(25, 25, 35, 0.6);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .app-icon:hover {
+        transform: none;
+        /* Disable hover lift on touch */
+    }
+
+    .app-icon>div:first-child {
+        font-size: 1.8rem !important;
+    }
+
+    .icon-val {
+        font-size: 0.75rem;
+    }
+
+    /* AI PAGE / MODALS MOBILE - KEYBOARD FIX */
+    .glass-page {
+        position: fixed;
+        inset: 0;
+        margin: 0;
+        border-radius: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        background: #0d0d12 !important;
+        height: 100dvh;
+        /* Dynamic Viewport for Keyboard */
+    }
+
+    .page-header {
+        padding: 15px;
+        background: rgba(20, 20, 20, 0.95);
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        flex-shrink: 0;
+    }
+
+    .page-content {
+        padding: 15px;
+        overflow-y: auto;
+        padding-bottom: 20px;
+        flex: 1;
+        height: auto;
+    }
+
+    /* GEN AI SPECIFIC */
+    .gen-ai-footer {
+        position: sticky;
+        /* Sticky to bottom of flex container */
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 10px;
+        background: rgba(10, 10, 15, 0.95);
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        z-index: 100;
+        border-radius: 0;
+        margin: 0;
+        flex-shrink: 0;
+    }
+
+    .gen-ai-input-wrapper {
+        flex-direction: row;
+        align-items: center;
+        width: 100%;
+    }
+
+    .gen-ai-input {
+        font-size: 1rem;
+        /* Prevent zoom */
+        width: 100%;
+    }
+}
+
 /* LOG MODAL REDESIGN */
 .log-container {
     display: flex;

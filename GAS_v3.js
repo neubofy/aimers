@@ -17,14 +17,19 @@ const API_SECRET = 'aimers2025';
 // ==========================================
 function doPost(e) {
     const lock = LockService.getScriptLock();
-    try { lock.waitLock(10000); } catch (e) { return json({ error: "Server Busy" }); }
+    const action = e.parameter.action;
+    // Only lock for WRITE operations to allow parallel reads
+    const isWrite = ['start', 'pause', 'resume', 'startFromCalendar', 'stop', 'reset', 'add', 'completeTask'].includes(action);
+
+    if (isWrite) {
+        try { lock.waitLock(25000); } catch (e) { return json({ error: "Server Busy" }); }
+    }
 
     try {
         // 1. Authenticate
         if (!e.parameter.key || e.parameter.key !== API_SECRET) return json({ error: "Wrong Password" });
 
         // 2. Route Request
-        const action = e.parameter.action;
         const p = e.parameter;
         let out = {};
 
@@ -52,7 +57,9 @@ function doPost(e) {
         return json(out);
     } catch (err) {
         return json({ error: err.toString() });
-    } finally { lock.releaseLock(); }
+    } finally {
+        if (isWrite) lock.releaseLock();
+    }
 }
 
 function json(data) { return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON); }
@@ -496,3 +503,45 @@ function getTimerSheet_v2() { const ss = SpreadsheetApp.openById(SHEET_ID); let 
 function getTodayStr() { return Utilities.formatDate(new Date(), getUserTZ(), "yyyy-MM-dd"); }
 function getUserTZ() { return Session.getScriptTimeZone() || 'Asia/Kolkata'; }
 function normalizeDate(c) { try { if (typeof c === 'number') return Utilities.formatDate(new Date(Math.round((c - 25569) * 864e5)), getUserTZ(), "yyyy-MM-dd"); var d = new Date(c); return !isNaN(d) ? Utilities.formatDate(d, getUserTZ(), "yyyy-MM-dd") : String(c).trim(); } catch (e) { return String(c).trim(); } }
+// ==========================================
+// OFFLINE NOTIFICATIONS (Run via Time Trigger)
+// ==========================================
+// Bot: @jeetubhaiya_aimers_bot
+// ==========================================
+// OFFLINE NOTIFICATIONS (Run via Time Trigger)
+// ==========================================
+// Bot: @jeetubhaiya_aimers_bot
+function checkAndSendPush() {
+    // Run this every 15 mins via Triggers to notify even when app is CLOSED
+    const ctx = getUnifiedAgentContext();
+    const alerts = ctx.notifications || [];
+
+    // Filter for HIGH PRIORITY only
+    // Logic: 'action' (Schedule Start) & 'warning' (Overdue)
+    // Note: 'generateNotifications' looks ahead 30 mins for schedule events.
+    // This perfectly covers the 15-minute trigger gap (Latency Protection).
+    const urgent = alerts.filter(a => a.type === 'action' || a.type === 'warning');
+
+    if (urgent.length > 0) {
+        const msg = "🚨 AIMERS OS ALERT:\n" + urgent.map(a => a.msg).join("\n");
+        sendTelegram(msg);
+    }
+}
+
+// RUN ONCE TO INSTALL, THEN DELETE OR IGNORE
+// function installTrigger() {
+//    const triggers = ScriptApp.getProjectTriggers();
+//    for (const t of triggers) {
+//        if (t.getHandlerFunction() === 'checkAndSendPush') ScriptApp.deleteTrigger(t);
+//    }
+//    ScriptApp.newTrigger('checkAndSendPush').timeBased().everyMinutes(15).create();
+// }
+
+function sendTelegram(text) {
+    const BOT_TOKEN = "8285747845:AAET4_WbUwv5zVKoNC4QfCeJWl1Cyqh1AIk";
+    const CHAT_ID = "7818115677";
+    if (BOT_TOKEN && CHAT_ID) {
+        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(text)}`;
+        try { UrlFetchApp.fetch(url); } catch (e) { }
+    }
+}
