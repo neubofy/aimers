@@ -2261,6 +2261,7 @@ body.pip-mode .cmd-toast {
     overflow: hidden;
 }
 
+/* RESTORED GEN AI STYLES */
 .gen-ai-header {
     flex-shrink: 0;
     display: flex;
@@ -2299,6 +2300,120 @@ body.pip-mode .cmd-toast {
 .icon-action:hover {
     color: #fff;
     transform: rotate(15deg);
+}
+
+/* LOG MODAL REDESIGN */
+.log-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-bottom: 20px;
+}
+
+.log-summary-card {
+    background: linear-gradient(135deg, rgba(20, 20, 30, 0.9), rgba(0, 0, 0, 0.8));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 25px;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.summary-title {
+    font-size: 0.8rem;
+    color: #888;
+    letter-spacing: 2px;
+    margin-bottom: 5px;
+    font-weight: 700;
+}
+
+.summary-value {
+    font-size: 3rem;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    margin-bottom: 5px;
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+}
+
+.summary-value .unit {
+    font-size: 1rem;
+    color: #888;
+    margin-left: 5px;
+}
+
+.summary-sub {
+    font-size: 0.9rem;
+    color: #D4AF37;
+}
+
+.log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.log-item {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    padding: 15px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: 0.2s;
+}
+
+.log-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateX(5px);
+}
+
+.log-icon {
+    font-size: 1.5rem;
+    width: 40px;
+    display: flex;
+    justify-content: center;
+}
+
+.log-details {
+    flex: 1;
+}
+
+.log-cat {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #e0e0e0;
+    margin-bottom: 6px;
+}
+
+.log-time-bar {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    width: 100%;
+    overflow: hidden;
+}
+
+.log-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4facfe, #00f2fe);
+    border-radius: 2px;
+}
+
+.log-mins {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #fff;
+    min-width: 50px;
+    text-align: right;
+}
+
+.empty-log {
+    text-align: center;
+    color: #666;
+    padding: 20px;
+    font-style: italic;
 }
 
 .gen-ai-scroll {

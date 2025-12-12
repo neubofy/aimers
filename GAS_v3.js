@@ -47,6 +47,7 @@ function doPost(e) {
 
         // NEW: UNIFIED CONTEXT FOR AGENT (Mentor Mode)
         else if (action === 'getAgentContext') out = getUnifiedAgentContext();
+        else if (action === 'getHistoryContext') out = getDeepHistoryContext();
 
         return json(out);
     } catch (err) {
@@ -59,6 +60,36 @@ function json(data) { return ContentService.createTextOutput(JSON.stringify(data
 // ==========================================
 // MENTOR & NOTIFICATION SYSTEM (NEW)
 // ==========================================
+function getDeepHistoryContext() {
+    // Specific function for deep history/planning context
+    try {
+        const ss = SpreadsheetApp.openById(SHEET_ID);
+        const sheet = ss.getSheetByName(RESPONSES_SHEET_NAME);
+        if (!sheet) return { error: "Responses sheet not found" };
+
+        const lastRow = sheet.getLastRow();
+        if (lastRow < 2) return { error: "No data available" };
+
+        // Column W is 23 (Current Day Plan)
+        // Column AD is 30 (Last 7 Days History)
+        // We fetch one row only
+        const range = sheet.getRange(lastRow, 1, 1, 30);
+        const values = range.getValues()[0];
+
+        // Adjust indices (0-based array compared to 1-based columns)
+        // W = 23rd column -> index 22
+        // AD = 30th column -> index 29
+
+        return {
+            status: "success",
+            current_plan: values[22] || "No plan data found.",
+            weekly_history: values[29] || "No history data found."
+        };
+    } catch (e) {
+        return { error: e.toString() };
+    }
+}
+
 function getUnifiedAgentContext() {
     // 1. Fetch ALL data efficiently
     // Note: In GAS, we want to minimize individual Spreadsheet calls.
@@ -103,11 +134,22 @@ function generateNotifications(timer, sessions, dash, tasks, schedule) {
     const alerts = [];
     const now = new Date();
 
-    // A. Timer Alerts
+    // A. Timer Alerts (RIGOROUS MODE: PUSH UNTIL TARGET)
     if (timer.running) {
         const elapsed = (Date.now() - timer.startTime) / 60000;
-        if (elapsed > 50 && elapsed < 55) alerts.push({ type: "info", msg: "You've been focused for 50 mins. Take a break soon?" });
-        if (elapsed > 90) alerts.push({ type: "warning", msg: "Long session detected (>90m). Diminishing returns warning." });
+        const target = timer.target || 120; // Default 2h (120m)
+
+        if (elapsed < target) {
+            // Motivation to keep going
+            if (elapsed > (target * 0.8)) {
+                alerts.push({ type: "motivation", msg: "Final sprints! Don't stop until the target is hit." });
+            } else if (elapsed > (target * 0.5)) {
+                alerts.push({ type: "motivation", msg: "Halfway mark passed. Maintain focus!" });
+            }
+        } else {
+            // Target reached
+            alerts.push({ type: "success", msg: "Target reached! You can stop now or earn bonus XP." });
+        }
     }
 
     // B. Schedule Alerts (Upcoming Events)

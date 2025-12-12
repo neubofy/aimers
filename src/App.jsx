@@ -8,6 +8,7 @@ import PlanModal from './components/modals/PlanModal';
 import LogModal from './components/modals/LogModal';
 import MentorModal from './components/modals/MentorModal';
 import StartSelectorModal from './components/modals/StartSelectorModal';
+import MathModal from './components/modals/MathModal';
 import { callApi } from './services/api';
 import { Voice } from './services/voice';
 
@@ -56,6 +57,12 @@ function App() {
             setInstallPrompt(e);
         };
         window.addEventListener('beforeinstallprompt', handler);
+
+        // Request Notification Permission
+        if ("Notification" in window && Notification.permission !== "granted") {
+            Notification.requestPermission();
+        }
+
         return () => window.removeEventListener('beforeinstallprompt', handler);
     }, []);
 
@@ -188,9 +195,37 @@ function App() {
     const refreshFull = async () => {
         setSync("active"); lastSync.current = Date.now();
         try {
-            const [s, t, d, sch, l] = await Promise.all([callApi("getState"), callApi("tasks"), callApi("dashboard"), callApi("scheduleToday"), callApi("today")]);
+            // Fetch Standard Data + Agent Context (for Notifications)
+            const [s, t, d, sch, l, ctx] = await Promise.all([
+                callApi("getState"),
+                callApi("tasks"),
+                callApi("dashboard"),
+                callApi("scheduleToday"),
+                callApi("today"),
+                callApi("getAgentContext")
+            ]);
+
             setSt(s); setTasks(t || []); setDash(d); setSchedule(sch || []); setTodayLog(l || []);
             setSync("");
+
+            // HANDLE NOTIFICATIONS
+            if (ctx && ctx.notifications && ctx.notifications.length > 0) {
+                ctx.notifications.forEach(n => {
+                    // Only notify for action-oriented or high-value alerts to avoid spam
+                    // 'motivation' is good too if rigorous.
+                    // Prevent duplicate spam? Browser handles some, but we pull every 5m.
+                    // Simple check: Notification.permission
+                    if ("Notification" in window && Notification.permission === "granted") {
+                        if (['action', 'warning', 'success', 'motivation'].includes(n.type)) {
+                            new Notification(`AIMERS OS: ${n.type.toUpperCase()}`, {
+                                body: n.msg,
+                                icon: '/icon-192.png' // Assuming icon exists
+                            });
+                        }
+                    }
+                });
+            }
+
         } catch (e) { setSync(""); if (e.message === "NO_KEY" || e.message.includes("Wrong")) handleLogout(); }
     };
 
@@ -237,6 +272,35 @@ function App() {
             agentRef.current.updateKey(groqKey);
         }
     }, [groqKey]);
+
+    // EARLY EXIT GUARD
+    // EARLY EXIT GUARD
+    const handleStopRequest = async () => {
+        // Strict guard: applies if session exists (running or paused)
+        if (st.running) {
+            const targetMins = st.target && st.target > 0 ? st.target : 120;
+            const targetSeconds = targetMins * 60;
+
+            // Check if elapsed < target
+            // Note: 'elapsed' in state might reset on pause? Check logic.
+            // st.startTime exists.
+
+            // If paused, we need to account for paused duration vs actual progress?
+            // Actually, we just care if we reached the goal.
+            // But 'elapsed' state logic in App.jsx:
+            // if paused, elapsed is not updating? 
+            // We should compare 'elapsed' (which is tracked progress) vs target.
+
+            // Safer check:
+            if (elapsed < targetSeconds) {
+                // Trigger Challenge
+                setModal('math-challenge');
+                return;
+            }
+        }
+        // Otherwise, normal stop
+        await act("stop");
+    };
 
     const sendToMentor = async (overrideText = null) => {
         const text = overrideText || msgInput;
@@ -451,7 +515,7 @@ function App() {
             )}
 
             {pip ? createPortal(
-                <TimerCard st={st} sync={sync} elapsed={elapsed} pauseLeft={pauseLeft} act={act} onPop={togglePiP} isPopped={true} openStartModal={() => setModal('start-selector')} />,
+                <TimerCard st={st} sync={sync} elapsed={elapsed} pauseLeft={pauseLeft} act={act} onPop={togglePiP} isPopped={true} openStartModal={() => setModal('start-selector')} onStopRequest={handleStopRequest} />,
                 pip.document.body
             ) : (
                 <div style={{ marginTop: 60 }}>
@@ -461,6 +525,7 @@ function App() {
                         setAddMins={setAddMins} openStartModal={() => setModal('start-selector')}
                         onLogout={handleLogout}
                         installPrompt={installPrompt} onInstall={handleInstall}
+                        onStopRequest={handleStopRequest}
                     />
                 </div>
             )}
@@ -518,6 +583,7 @@ function App() {
                         {modal === 'stats' && <StatsModal dash={dash} />}
                         {modal === 'tasks' && <TasksModal tasks={tasks} taskTab={taskTab} setTaskTab={setTaskTab} act={act} />}
                         {modal === 'log' && <LogModal todayLog={todayLog} />}
+                        {modal === 'math-challenge' && <MathModal onSuccess={() => { setModal(null); act("stop"); }} onCancel={() => setModal(null)} />}
                     </div>
                 </div>
             )

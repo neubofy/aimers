@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatTime } from '../utils/time';
 
-export default function TimerCard({ st, sync, elapsed, pauseLeft, act, onPop, isPopped, addMins, setAddMins, openStartModal, targetTime, onLogout, installPrompt, onInstall }) {
+export default function TimerCard({ st, sync, elapsed, pauseLeft, act, onPop, isPopped, addMins, setAddMins, openStartModal, targetTime, onLogout, installPrompt, onInstall, onStopRequest }) {
     const maxTime = st.target || targetTime || 120;
     const safeElapsed = Math.max(0, elapsed);
     // Calculate percentage based on state
@@ -57,11 +57,11 @@ export default function TimerCard({ st, sync, elapsed, pauseLeft, act, onPop, is
                         <>
                             <button key="r" className="btn btn-main" onClick={() => act("resume")}>RESUME</button>
                             <button key="res" className="btn btn-reset" onClick={() => act("reset")}>RESET</button>
-                            <button key="s" className="btn btn-stop" onClick={() => act("stop")}>STOP</button>
+                            <button key="s" className="btn btn-stop" onClick={onStopRequest || (() => act("stop"))}>STOP</button>
                         </> :
                         <>
                             <button key="p" className="btn" onClick={() => act("pause")}>PAUSE</button>
-                            <button key="s" className="btn btn-stop" onClick={() => act("stop")}>STOP</button>
+                            <button key="s" className="btn btn-stop" onClick={onStopRequest || (() => act("stop"))}>STOP</button>
                         </>
                     )
                 }

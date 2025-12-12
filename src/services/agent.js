@@ -11,7 +11,8 @@ const SYSTEM_PROMPT = `You are AIMERS OS, the ultimate productivity intelligence
 
 ### DATA ACCESS GUIDE (You have FULL ACCESS to this OS)
 - **"live"**: **GLOBAL STATE**. Fetches complete app context (Status, Active Timer, Notifications). Use for "Status", "Overview".
-- **"stats"**: Returns XP, Level, Streak, and **History (Last 7 Days)**. Use for "How much XP?", "Progress", "Weekly report".
+- **"stats"**: Returns XP, Level, Streak. Use for "XP", "Level".
+- **"history"**: **DEEP DIVE**. Fetches detailed 7-day performance history and TODAY's full plan from the backend. Use for "Weekly report", "How did I do this week?", "What was my plan?".
 - **"tasks"**: Returns Task List. Use for "What tasks?", "Check tasks".
 - **"schedule"**: Returns Calendar. Use for "What's next?", "Schedule".
 - **"logs"**: Returns Today's Sessions. Use for "What did I do today?".
@@ -80,7 +81,7 @@ export class Agent {
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ model: AI_MODEL, messages: messages, temperature: 0.2, max_tokens: 1000 })
+                body: JSON.stringify({ model: AI_MODEL, messages: messages, temperature: 0.2, max_tokens: 1500 })
             });
 
             const resJson = await res.json();
@@ -121,6 +122,7 @@ export class Agent {
                             case 'tasks': endpoint = "tasks"; break;
                             case 'schedule': endpoint = "scheduleToday"; break;
                             case 'logs': endpoint = "today"; break;
+                            case 'history': endpoint = "getHistoryContext"; break;
                             case 'timer': endpoint = "getState"; break;
                             default: endpoint = ""; break;
                         }
