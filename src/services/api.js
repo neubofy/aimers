@@ -1,4 +1,4 @@
-const API_URL = "https://script.google.com/macros/s/AKfycbzrgtW_KFHNclLYIAQbzfqNigclvuUW7OEyOKpY3KZFURQKlgL3b9YNciExObr32igITg/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbylrUYq6rdjmPAVNylynMCcdpAmUgSV7mXXz-0OsZ4SygkxvU-zrcFsWK6ROcMn2ksSxA/exec";
 
 export const callApi = async (action, p = {}) => {
     const k = localStorage.getItem("aimers_key");

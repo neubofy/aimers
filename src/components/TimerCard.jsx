@@ -1,10 +1,20 @@
 import React from 'react';
 import { formatTime } from '../utils/time';
 
-export default function TimerCard({ st, sync, elapsed, pauseLeft, act, onPop, isPopped, addMins, setAddMins, openStartModal, targetTime, onLogout }) {
+export default function TimerCard({ st, sync, elapsed, pauseLeft, act, onPop, isPopped, addMins, setAddMins, openStartModal, targetTime, onLogout, installPrompt, onInstall }) {
     const maxTime = st.target || targetTime || 120;
     const safeElapsed = Math.max(0, elapsed);
-    const pct = (!st.running && !st.paused) ? 0 : (st.paused ? (pauseLeft / 120) * 100 : Math.min(100, (safeElapsed / (maxTime * 60)) * 100));
+    // Calculate percentage based on state
+    let pct = 0;
+    if (st.running && !st.paused) {
+        pct = Math.min(100, (safeElapsed / (maxTime * 60)) * 100);
+    } else if (st.paused) {
+        // Dynamic Pause Percentage
+        const totalPauseDur = (st.pauseExpiry - st.pauseStart) / 1000;
+        const safeTotal = totalPauseDur > 0 ? totalPauseDur : 120;
+        pct = Math.min(100, Math.max(0, (pauseLeft / safeTotal) * 100));
+    }
+
     const deg = (!st.running && !st.paused) ? 0 : (st.paused ? 0 : (safeElapsed / (maxTime * 60)) * 360);
 
     const bubbles = Array.from({ length: 5 }).map((_, i) => (
@@ -13,30 +23,30 @@ export default function TimerCard({ st, sync, elapsed, pauseLeft, act, onPop, is
 
     return (
         <div className="glass-card">
-            {!isPopped && (
-                <div className="header-row">
-                    <button className="logout-btn" onClick={onLogout}><i className="fas fa-power-off"></i></button>
-                    <span style={{ fontSize: "0.8rem", fontWeight: "bold", letterSpacing: 1 }}>AIMERS OS</span>
-                    <button onClick={onPop} style={{ background: "none", border: "none", color: "#fff", fontSize: "1.2rem", cursor: "pointer" }}>⤢</button>
-                </div>
-            )}
+            {/* Header removed from TimerCard - moved to Main Layout */}
 
             <div className={`timer-wrapper ${st.running && !st.paused ? 'running' : ''} ${st.paused ? 'paused' : ''}`}>
                 <div className="pulse-ring"></div>
                 <div className="pulse-ring"></div>
                 <div className="needle-ring">
+                    {/* Main Progress Needle */}
                     <div className="needle" style={{ transform: `rotate(${deg}deg)`, opacity: (!st.running && !st.paused) ? 1 : (st.paused ? 0 : 1) }}></div>
+                    {/* Continuous Seconds Needle */}
+                    {st.running && !st.paused && (
+                        <div className="needle second-hand" style={{ transform: `rotate(${safeElapsed * 6}deg)` }}></div>
+                    )}
                 </div>
-                <div className="liquid-mask">
-                    <div className={`liquid ${st.paused ? 'paused-liquid' : ''}`} style={{ height: `${pct}%` }}>
-                        {st.running && !st.paused && bubbles}
+
+                {/* Fixed Liquid Stricture - No Mask Needed as Wrapper handles it */}
+                <div className={`liquid ${st.paused ? 'paused-liquid' : ''}`} style={{ height: `${pct}%` }}>
+                    {st.running && !st.paused && bubbles}
+                </div>
+
+                <div className="timer-content">
+                    <div className="time-display">
+                        {(!st.running && !st.paused) ? "00:00" : (st.paused ? formatTime(pauseLeft) : formatTime(safeElapsed))}
                     </div>
-                    <div className="timer-content">
-                        <div className="time-display">
-                            {(!st.running && !st.paused) ? "00:00" : (st.paused ? pauseLeft + "s" : formatTime(safeElapsed))}
-                        </div>
-                        <div className="status-label">{st.paused ? "PAUSED" : (st.running ? st.category : "READY")}</div>
-                    </div>
+                    <div className="status-label">{st.paused ? "RELAX" : (st.running ? st.category : "READY")}</div>
                 </div>
             </div>
 

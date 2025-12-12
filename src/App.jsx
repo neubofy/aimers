@@ -36,9 +36,35 @@ function App() {
 
     // CHAT & VOICE
     const [msgInput, setMsgInput] = useState("");
-    const [chatHistory, setChatHistory] = useState([{ role: "system", content: "OS Online." }]);
+    const [chatHistory, setChatHistory] = useState(() => {
+        const saved = localStorage.getItem("aimers_chat_ui");
+        return saved ? JSON.parse(saved) : [{ role: "system", content: "OS Online." }];
+    });
     const [aiThinking, setAiThinking] = useState(false);
     const [listening, setListening] = useState(false);
+
+    // Persist Chat History
+    useEffect(() => {
+        localStorage.setItem("aimers_chat_ui", JSON.stringify(chatHistory));
+    }, [chatHistory]);
+
+    // PWA INSTALLATION
+    const [installPrompt, setInstallPrompt] = useState(null);
+    useEffect(() => {
+        const handler = (e) => {
+            e.preventDefault();
+            setInstallPrompt(e);
+        };
+        window.addEventListener('beforeinstallprompt', handler);
+        return () => window.removeEventListener('beforeinstallprompt', handler);
+    }, []);
+
+    const handleInstall = async () => {
+        if (!installPrompt) return;
+        installPrompt.prompt();
+        const { outcome } = await installPrompt.userChoice;
+        if (outcome === 'accepted') setInstallPrompt(null);
+    };
 
     const lastSync = useRef(0);
 
@@ -57,41 +83,90 @@ function App() {
                 setTimeout(toggleVoice, 300);
             }
         };
+
+        const handleMouseUp = (e) => {
+            // Button 3 is 'Back' button on mice
+            if (e.button === 3) {
+                setModal(null);
+            }
+        };
+
         window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
+        window.addEventListener('mouseup', handleMouseUp);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
     }, [listening]);
 
-    const act = async (a, p = {}) => {
-        // SILENT MODE: No Toast
-        if (['start', 'stop', 'pause', 'add', 'completeTask'].includes(a)) {
-            // const cmdName = a === 'add' ? 'LOG' : a.toUpperCase();
-            // setCmdToast... removed
+    // ACTION QUEUE SYSTEM
+    const actionQueue = useRef([]);
+    const isProcessing = useRef(false);
+
+    const processQueue = async () => {
+        if (isProcessing.current || actionQueue.current.length === 0) return;
+
+        isProcessing.current = true;
+
+        while (actionQueue.current.length > 0) {
+            const { action, params, resolve, reject } = actionQueue.current.shift();
+
+            try {
+                // UI OPTIMISTIC UPDATES (Immediate Feedback)
+                // SILENT MODE: No Sound
+                if (action !== 'reset') { setSync("active"); /* Sound.play('click'); */ }
+
+                if (action === 'start' && st.running) {
+                    alert("Session already active!");
+                    // continue to next? or stop? usually stop this specific action
+                }
+                else if (action === 'start') {
+                    setSt({ running: true, paused: false, startTime: Date.now(), category: params.category || 'Focus', target: params.target || 120 });
+                    setModal(null);
+                }
+                else if (action === 'stop') { setSt({ ...st, running: false }); setElapsed(0); }
+                else if (action === 'reset') {
+                    setSt({ running: false, paused: false, startTime: null, category: 'Focus', target: 120 });
+                    setElapsed(0); setPauseLeft(120); setSync("active");
+                }
+                else if (action === 'pause') {
+                    const now = Date.now();
+                    const dbo = params.seconds ? params.seconds * 1000 : (params.minutes ? params.minutes * 60000 : 120000);
+                    setSt({ ...st, running: true, paused: true, pauseStart: now, pauseExpiry: now + dbo });
+                }
+                else if (action === 'resume') setSt({ ...st, running: true, paused: false });
+                else if (action === 'completeTask') setTasks(prev => prev.map(t => t.id === params.id ? { ...t, status: 'completed' } : t));
+
+                // ACTUAL API SYNC
+                const res = await callApi(action, params);
+
+                if (res.error === "SESSION_ACTIVE") {
+                    alert("Sync Error: Session already running on another device.");
+                    await refreshState();
+                } else {
+                    if (['stop', 'reset', 'add', 'completeTask'].includes(action)) await refreshFull();
+                    else await refreshState();
+                }
+
+                resolve(res);
+
+            } catch (e) {
+                setSync("");
+                console.error("API FAIL:", e);
+                reject(e);
+            }
         }
 
-        // SILENT MODE: No Sound
-        if (a !== 'reset') { setSync("active"); /* Sound.play('click'); */ }
+        setSync("");
+        isProcessing.current = false;
+    };
 
-        if (a === 'start' && st.running) return alert("Session already active!");
-        if (a === 'start') {
-            // Sound.play('start'); 
-            setSt({ running: true, paused: false, startTime: Date.now(), category: p.category || 'Focus', target: p.target || 120 });
-            setModal(null);
-        }
-        if (a === 'stop') { setSt({ ...st, running: false }); setElapsed(0); }
-        if (a === 'reset') {
-            // Sound.play('click'); 
-            setSt({ running: false, paused: false, startTime: null, category: 'Focus', target: 120 });
-            setElapsed(0); setPauseLeft(120); setSync("active");
-        }
-        if (a === 'pause') setSt({ ...st, running: true, paused: true, pauseExpiry: Date.now() + 120000 });
-        if (a === 'resume') setSt({ ...st, running: true, paused: false });
-        if (a === 'completeTask') setTasks(prev => prev.map(t => t.id === p.id ? { ...t, status: 'completed' } : t));
-
-        try {
-            const res = await callApi(a, p);
-            if (res.error === "SESSION_ACTIVE") { alert("Sync Error: Session already running on another device."); refreshState(); }
-            else { if (['stop', 'reset', 'add', 'completeTask'].includes(a)) refreshFull(); else refreshState(); }
-        } catch (e) { setSync(""); console.error("API FAIL:", e); }
+    const act = (a, p = {}) => {
+        return new Promise((resolve, reject) => {
+            actionQueue.current.push({ action: a, params: p, resolve, reject });
+            processQueue();
+        });
     };
 
     useEffect(() => {
@@ -195,17 +270,49 @@ function App() {
 
         if (cmds.length > 0) {
             console.log("Agent Commands:", cmds);
-            for (const cmd of cmds) {
+
+            // OPTIMIZATION: Check for multiple completions and run them in parallel
+            const completions = cmds.filter(c => (c.tool || c.t) === "complete");
+            const others = cmds.filter(c => (c.tool || c.t) !== "complete");
+
+            // 1. Handle Bulk Completions First (Parallel)
+            if (completions.length > 0) {
+                setChatHistory(prev => [...prev, { role: "system", content: `> Completing ${completions.length} tasks...` }]);
+
+                // Using Promise.all for speed, skipping 'act' wrapper to avoid multi-refresh
+                await Promise.all(completions.map(cmd => callApi("completeTask", { id: cmd.id, listId: cmd.listId || cmd.lid }).catch(e => console.error(e))));
+
+                // Update Local State Optimistically
+                setTasks(prev => prev.map(t => {
+                    const matched = completions.find(c => c.id === t.id);
+                    return matched ? { ...t, status: 'completed' } : t;
+                }));
+
+                // Single Sync at the end
+                refreshFull();
+            }
+
+            // 2. Handle Others Sequentially
+            for (const cmd of others) {
                 try {
                     const tool = cmd.tool || cmd.t;
 
-                    // SILENT EXECUTION - No setCmdToast here
-                    // Only log to system chat for transparency if needed, or keep it totally hidden
-                    setChatHistory(prev => [...prev, {
-                        role: "system",
-                        content: `> Executing: ${tool}`
-                    }]);
+                    // Enhanced Logging
+                    let logMsg = `> Executing: ${tool}`;
+                    if (tool === 'start') logMsg = `> Starting '${cmd.category || cmd.cat || 'Focus'}' (${cmd.minutes || cmd.min || cmd.target || 120}m)`;
+                    else if (tool === 'cal_start') logMsg = `> Syncing '${cmd.query || cmd.q}' from Calendar...`;
+                    else if (tool === 'stop') logMsg = `> Stopping session & logging time.`;
+                    else if (tool === 'pause') {
+                        const m = cmd.minutes || cmd.min || 0;
+                        const s = cmd.seconds || cmd.sec || 0;
+                        logMsg = `> Pausing for ${m > 0 ? m + 'm ' : ''}${s > 0 ? s + 's' : ''}`;
+                    }
+                    else if (tool === 'resume') logMsg = `> Resuming session...`;
+                    else if (tool === 'web_search') logMsg = `> Searching web for '${cmd.query || cmd.q}'...`;
+                    else if (tool === 'nav') logMsg = `> Opening ${cmd.view || cmd.v} view`;
+                    else if (tool === 'log') logMsg = `> Logging ${cmd.minutes || cmd.min}m to '${cmd.category || cmd.cat}'`;
 
+                    setChatHistory(prev => [...prev, { role: "system", content: logMsg }]);
                     await new Promise(r => setTimeout(r, 500));
 
                     if (tool === "nav") {
@@ -214,12 +321,19 @@ function App() {
                         setModal(v);
                     }
                     else if (tool === "start") { await act("start", { category: cmd.category || cmd.cat, target: cmd.minutes || cmd.min || cmd.target }); }
+                    else if (tool === "cal_start") { await act("startFromCalendar", { query: cmd.query || cmd.q }); }
                     else if (tool === "stop") { await act("stop"); }
-                    else if (tool === "pause") { await act("pause"); }
-                    else if (tool === "resume") { await act("resume"); }
+                    else if (tool === "pause") { await act("pause", { minutes: cmd.minutes || cmd.min, seconds: cmd.seconds || cmd.sec }); }
+                    else if (tool === "resume") {
+                        // OPTIMISTIC UPDATE: Shift Start Time locally to avoid jump
+                        if (st.pauseStart) {
+                            const pauseDuration = Date.now() - st.pauseStart;
+                            setSt(prev => ({ ...prev, running: true, paused: false, startTime: prev.startTime + pauseDuration }));
+                        }
+                        await act("resume");
+                    }
                     else if (tool === "reset") { await act("reset"); }
                     else if (tool === "log") { await act("add", { minutes: cmd.minutes || cmd.min, category: cmd.category || cmd.cat }); }
-                    else if (tool === "complete") { await act("completeTask", { id: cmd.id, listId: cmd.listId || cmd.lid }); }
                 } catch (e) {
                     setChatHistory(prev => [...prev, { role: "system", content: `Error: ${e.message}` }]);
                 }
@@ -294,11 +408,55 @@ function App() {
             </div>
             <LiveBackground />
 
+            {/* GLOBAL APP HEADER */}
+            {!pip && (
+                <div className="app-header" style={{
+                    position: 'fixed', top: 0, left: 0, right: 0,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '16px 24px', zIndex: 100,
+                    background: 'rgba(0, 0, 0, 0.4)',
+                    backdropFilter: 'blur(12px)',
+                    borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
+                }}>
+                    <div className="header-left">
+                        <span style={{ fontSize: "1.1rem", fontWeight: 700, letterSpacing: 1, color: '#fff', opacity: 0.9 }}>AIMERS OS</span>
+                    </div>
+
+                    <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        {/* SYNC BUTTON */}
+                        <button className="header-btn gold" onClick={refreshFull} title="Sync">
+                            <i className={`fas fa-sync-alt ${sync === 'active' ? 'spin' : ''}`}></i>
+                            <span>SYNC</span>
+                        </button>
+
+                        {/* PIP BUTTON */}
+                        <button className="header-btn" onClick={togglePiP} title="Pop Out">
+                            <span>⤢</span>
+                            <span>POP OUT</span>
+                        </button>
+
+                        {/* LOGOUT BUTTON */}
+                        <button className="header-btn danger" onClick={handleLogout} title="Logout">
+                            <i className="fas fa-power-off"></i>
+                            <span>EXIT</span>
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {pip ? createPortal(
                 <TimerCard st={st} sync={sync} elapsed={elapsed} pauseLeft={pauseLeft} act={act} onPop={togglePiP} isPopped={true} openStartModal={() => setModal('start-selector')} />,
                 pip.document.body
             ) : (
-                <TimerCard st={st} sync={sync} elapsed={elapsed} pauseLeft={pauseLeft} act={act} onPop={togglePiP} isPopped={false} addMins={addMins} setAddMins={setAddMins} openStartModal={() => setModal('start-selector')} onLogout={handleLogout} />
+                <div style={{ marginTop: 60 }}>
+                    <TimerCard
+                        st={st} sync={sync} elapsed={elapsed} pauseLeft={pauseLeft} act={act}
+                        onPop={togglePiP} isPopped={false} addMins={addMins}
+                        setAddMins={setAddMins} openStartModal={() => setModal('start-selector')}
+                        onLogout={handleLogout}
+                        installPrompt={installPrompt} onInstall={handleInstall}
+                    />
+                </div>
             )}
 
             {!pip && (
@@ -319,9 +477,9 @@ function App() {
                         <div style={{ fontSize: "1.3rem" }}>📝</div>
                         <div className="icon-val">{todayLog.reduce((a, b) => a + b.minutes, 0)}m</div>
                     </div>
-                    <div className="app-icon" data-label="AI Mentor" style={{ border: "1px solid #00ff41" }} onDoubleClick={handleAiIconDouble} onClick={() => handleTabClick('mentor')}>
-                        <div style={{ fontSize: "1.3rem" }}>🧠</div>
-                        <div className="icon-val" style={{ color: "#00ff41" }}>AI</div>
+                    <div className="app-icon" data-label="AI Mentor" style={{ border: "1px solid #D4AF37", boxShadow: "0 0 10px rgba(212, 175, 55, 0.2)" }} onDoubleClick={handleAiIconDouble} onClick={() => handleTabClick('mentor')}>
+                        <div style={{ fontSize: "1.3rem" }}>🤖</div>
+                        <div className="icon-val" style={{ color: "#D4AF37" }}>MENTOR</div>
                     </div>
                 </div>
             )}
@@ -348,7 +506,7 @@ function App() {
                         )}
 
                         {/* PAGE CONTENT BODY */}
-                        {modal === 'mentor' && <MentorModal groqKey={groqKey} chatHistory={chatHistory} aiThinking={aiThinking} listening={listening} msgInput={msgInput} setMsgInput={setMsgInput} saveGroqKey={saveGroqKey} clearChat={clearChat} resetGroqKey={resetGroqKey} toggleVoice={toggleVoice} sendToMentor={sendToMentor} />}
+                        {modal === 'mentor' && <MentorModal groqKey={groqKey} chatHistory={chatHistory} aiThinking={aiThinking} listening={listening} msgInput={msgInput} setMsgInput={setMsgInput} saveGroqKey={saveGroqKey} clearChat={clearChat} resetGroqKey={resetGroqKey} toggleVoice={toggleVoice} sendToMentor={sendToMentor} syncData={refreshFull} />}
                         {modal === 'start-selector' && <StartSelectorModal bestSuggestion={bestSuggestion} act={act} customTarget={customTarget} setCustomTarget={setCustomTarget} />}
                         {modal === 'plan' && <PlanModal schedule={schedule} st={st} act={act} setModal={setModal} />}
                         {modal === 'stats' && <StatsModal dash={dash} />}
@@ -356,8 +514,9 @@ function App() {
                         {modal === 'log' && <LogModal todayLog={todayLog} />}
                     </div>
                 </div>
-            )}
-        </div>
+            )
+            }
+        </div >
     );
 }
 
