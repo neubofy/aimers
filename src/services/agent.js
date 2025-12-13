@@ -49,7 +49,8 @@ You are the **MASTER** of the Timer. You have direct control over the backend to
 - **"timer"**: Detailed Timer State.
 - **"prediction"**: XP Breakdown & Forecast.
 - **"journal"**: Personal Reflections (Motivation/Planning).
-
+- **"mentor"**: Nightly Mentor Suggestions (Achievement, Quote, Feedback).
+- **"pdf"**: Link to Official Reflection PDF.
 ### INTENT CLASSIFICATION (STRICT)
 **PROTOCOL**: First, silently analyze if the user wants to ACTION (Change State) or KNOW (Read Data).
 1. **COMMANDS** (State Change):
@@ -167,6 +168,8 @@ export class Agent {
                             case 'stats': endpoint = "stats_only"; break; // Optimized
                             case 'prediction': endpoint = "prediction_chunk"; break; // New
                             case 'journal': endpoint = "journal_chunk"; break; // New
+                            case 'mentor': endpoint = "mentor_chunk"; break; // New (Sheet)
+                            case 'pdf': endpoint = "pdf_chunk"; break; // New (Drive)
                             case 'history': endpoint = "history_chunk"; break; // Optimized (Graph)
                             case 'tasks': endpoint = "tasks"; break;
                             case 'schedule': endpoint = "scheduleToday"; break;
@@ -252,6 +255,16 @@ export class Agent {
                 case 'dashboard':
                     let statsMsg = `Stats: Lvl ${data.level || '?'}, XP ${data.xp || 0}, Streak ${data.streak || 0}🔥`;
                     return statsMsg;
+
+                case 'mentor':
+                    if (data.date) {
+                        return `Mentor [${data.date}]: "${data.achievement.substring(0, 50)}..." (Tag: ${data.tag})`;
+                    }
+                    return "Mentor: No recent suggestions.";
+
+                case 'pdf':
+                    if (data.found && data.pdf_url) return `PDF Found: [Download Reflection](${data.pdf_url})`;
+                    return "PDF: No reflection file found.";
 
                 case 'journal':
                     // Format Journal Entries

@@ -152,8 +152,15 @@ function App() {
                 }
                 else if (action === 'pause') {
                     const now = Date.now();
-                    const dbo = params.seconds ? params.seconds * 1000 : (params.minutes ? params.minutes * 60000 : 120000);
-                    setSt({ ...st, running: true, paused: true, pauseStart: now, pauseExpiry: now + dbo });
+                    // Agent uses 'min'/'sec'. UI uses 'minutes'/'seconds'. Support both.
+                    const mins = params.minutes || params.min || 0;
+                    const secs = params.seconds || params.sec || 0;
+
+                    let duration = 120000; // Default 2m
+                    if (mins > 0) duration = mins * 60000;
+                    else if (secs > 0) duration = secs * 1000;
+
+                    setSt({ ...st, running: true, paused: true, pauseStart: now, pauseExpiry: now + duration });
                 }
                 else if (action === 'resume') setSt({ ...st, running: true, paused: false });
                 else if (action === 'completeTask') setTasks(prev => prev.map(t => t.id === params.id ? { ...t, status: 'completed' } : t));
@@ -194,7 +201,19 @@ function App() {
         if (st.running && !st.paused) {
             if (st.startTime) interval = setInterval(() => { setElapsed(Math.floor((Date.now() - st.startTime) / 1000)); }, 1000);
         } else if (st.paused && st.pauseExpiry) {
-            interval = setInterval(() => { setPauseLeft(Math.max(0, Math.floor((st.pauseExpiry - Date.now()) / 1000))); }, 1000);
+            interval = setInterval(() => {
+                const left = Math.max(0, Math.floor((st.pauseExpiry - Date.now()) / 1000));
+                setPauseLeft(left);
+
+                // Auto-Stop if pause expires
+                if (left === 0) {
+                    clearInterval(interval);
+                    // We call the API to stop and log the session
+                    act("stop");
+                    // Optional: Notification?
+                    new Notification("AIMERS OS", { body: "Pause expired. Session logged." });
+                }
+            }, 1000);
         } else { setElapsed(0); }
         return () => clearInterval(interval);
     }, [st]);

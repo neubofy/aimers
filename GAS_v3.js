@@ -27,6 +27,7 @@ function doPost(e) {
 
     try {
         // 1. Authenticate
+
         if (!e.parameter.key || e.parameter.key !== API_SECRET) return json({ error: "Wrong Password" });
 
         // 2. Route Request
@@ -36,7 +37,7 @@ function doPost(e) {
         // Standard Timer Actions
         if (action === 'getState') out = getTimerState_v2();
         else if (action === 'start') out = startTimer_v2(p.category, p.target);
-        else if (action === 'pause') out = pauseTimer_v2(p.minutes, p.seconds);
+        else if (action === 'pause') out = pauseTimer_v2(p.minutes || p.min, p.seconds || p.sec);
         else if (action === 'resume') out = resumeTimer_v2();
         else if (action === 'startFromCalendar') out = startSessionFromCalendar_v2(p.query);
         else if (action === 'stop') out = stopTimerAndLog_v2();
@@ -55,8 +56,8 @@ function doPost(e) {
         else if (action === 'history_chunk') out = getHistoryChunk_v2();
         else if (action === 'prediction_chunk') out = getPredictionChunk_v2();
         else if (action === 'journal_chunk') out = getJournalChunk_v2(); // New custom reader
-
-        // NEW: UNIFIED CONTEXT FOR AGENT (Mentor Mode)
+        else if (action === 'mentor_chunk') out = getMentorSuggestion_v2(); // Sheet Data
+        else if (action === 'pdf_chunk') out = getReflectionPDF_v2(); // Drive Link
         else if (action === 'getAgentContext') out = getUnifiedAgentContext();
         else if (action === 'getHistoryContext') out = getDeepHistoryContext();
 
@@ -224,36 +225,44 @@ function startTimer_v2(cat, target) {
     return getTimerState_v2();
 }
 
-function pauseTimer_v2(mins, secs) {
-    const sheet = getTimerSheet_v2(); const now = Date.now();
-    let dur = 120000;
-    if (secs) dur = Number(secs) * 1000;
-    else if (mins) dur = Number(mins) * 60000;
 
-    sheet.getRange(2, 4, 1, 3).setValues([['yes', String(now), String(now + dur)]]);
+
+
+
+function pauseTimer_v2(mins, secs) {
+    const sheet = getTimerSheet_v2();
+    const now = Date.now();
+
+    // Default 5 mins if nothing provided? Or 2? 
+    // Agent usually sends `min` or `sec`.
+    // If user clicks "5m", mins=5.
+
+    let durationMs = 120000; // Default 2m
+    if (mins && Number(mins) > 0) durationMs = Number(mins) * 60000;
+    else if (secs && Number(secs) > 0) durationMs = Number(secs) * 1000;
+
+    const expiry = now + durationMs;
+
+    // Set Paused=yes, PauseStart=Pre-now, PauseExpiry=Future
+    sheet.getRange(2, 4, 1, 3).setValues([['yes', String(now), String(expiry)]]);
     return getTimerState_v2();
 }
-
 function resumeTimer_v2() {
     const sheet = getTimerSheet_v2();
     const data = sheet.getRange(2, 1, 1, 8).getValues()[0];
     const now = Date.now();
 
-    // Resetting incorrectly? Fix logic:
-    // We must shift the START TIME forward by the duration of the pause.
-    // data[1] = startTime, data[4] = pauseStart
     if (data[3] === 'yes' && data[4]) {
         const pauseStart = Number(data[4]);
         const start = Number(data[1]);
         const pausedDuration = now - pauseStart;
-        const newStart = start + pausedDuration;
+        const newStart = start + pausedDuration; // Shift start time forward
 
         // Update: State=Running, Start=NewStart, OriginalLogTime(Keep), Paused=No, PStart="", PExp=""
-        // Note: keeping data[2] (Last) untouched or updating it isn't critical for elapsed calc but good for logs.
         sheet.getRange(2, 1, 1, 6).setValues([['running', String(newStart), data[2], '', '', '']]);
     } else {
         // Fallback: Just ensure running status
-        sheet.getRange(2, 1).setValue('running');
+        sheet.getRange(2, 1, 1, 6).setValues([['running', data[1], data[2], '', '', '']]);
     }
     return getTimerState_v2();
 }
@@ -682,4 +691,116 @@ function getPredictionChunk_v2() {
         taskXP: taskXP,
         bonusXP: bonusXP
     };
+}
+
+const FEEDBACK_FOLDER_ID = '1QcrzzaobCLor1Twvyd3S5pb2B5fp0j1e';
+
+function getDailyFeedback_v2() {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(RESPONSES_SHEET_NAME);
+    if (!sheet) return { error: "Sheet not found" };
+
+    // 1. Get Data from Last Row (Most recent nightly reflection)
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { feedback: "No matching records." };
+
+    // Batch Read Cols R (18) to V (22)
+    // R: Achievement, S: Quote, T: Full Feedback, U: Tag, V: Strict Flag
+    // Also read Date (Col 1) to match PDF
+    const dataVals = sheet.getRange(lastRow, 18, 1, 5).getValues()[0];
+    const dateVal = sheet.getRange(lastRow, 1).getValue();
+    const dateStr = Utilities.formatDate(new Date(dateVal), getUserTZ(), "yyyy-MM-dd");
+
+    const chunk = {
+        date: dateStr,
+        achievement: dataVals[0],
+        quote: dataVals[1],
+        feedback: dataVals[2],
+        tag: dataVals[3],
+        strict: dataVals[4],
+        pdf_url: null
+    };
+
+    // 2. Find PDF in Drive
+    // Name pattern: "📘 NF_Lifestyle – 2024-12-12 Feedback"
+    try {
+        const folder = DriveApp.getFolderById(FEEDBACK_FOLDER_ID);
+        const filename = `📘 NF_Lifestyle – ${dateStr} Feedback`;
+
+        // Exact match usually excludes extension in simple name
+        const files = folder.getFilesByName(filename);
+        if (files.hasNext()) {
+            const file = files.next();
+            chunk.pdf_url = file.getUrl(); // or file.getDownloadUrl()
+        } else {
+            // Try with .pdf extension just in case
+            const filesPdf = folder.getFilesByName(filename + ".pdf");
+            if (filesPdf.hasNext()) chunk.pdf_url = filesPdf.next().getUrl();
+        }
+    } catch (e) {
+        chunk.pdf_error = e.toString();
+    }
+
+    return chunk;
+}
+
+function getMentorSuggestion_v2() {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(RESPONSES_SHEET_NAME);
+    if (!sheet) return { error: "Sheet not found" };
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { feedback: "No matching records." };
+
+    // Batch Read Cols R (18) to V (22)
+    const dataVals = sheet.getRange(lastRow, 18, 1, 5).getValues()[0];
+    const dateVal = sheet.getRange(lastRow, 1).getValue();
+    const dateStr = Utilities.formatDate(new Date(dateVal), getUserTZ(), "yyyy-MM-dd");
+
+    return {
+        date: dateStr,
+        achievement: dataVals[0],
+        quote: dataVals[1],
+        feedback: dataVals[2],
+        tag: dataVals[3],
+        strict: dataVals[4]
+    };
+}
+
+function getReflectionPDF_v2() {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(RESPONSES_SHEET_NAME);
+    let dateStr = Utilities.formatDate(new Date(), getUserTZ(), "yyyy-MM-dd");
+
+    // Try to sync date with sheet if possible
+    if (sheet) {
+        const lastRow = sheet.getLastRow();
+        if (lastRow > 1) {
+            const dateVal = sheet.getRange(lastRow, 1).getValue();
+            dateStr = Utilities.formatDate(new Date(dateVal), getUserTZ(), "yyyy-MM-dd");
+        }
+    }
+
+    const chunk = { date: dateStr, pdf_url: null, found: false };
+
+    try {
+        const folder = DriveApp.getFolderById(FEEDBACK_FOLDER_ID);
+        const filename = `📘 NF_Lifestyle – ${dateStr} Feedback`;
+
+        const files = folder.getFilesByName(filename);
+        if (files.hasNext()) {
+            chunk.pdf_url = files.next().getUrl();
+            chunk.found = true;
+        } else {
+            const filesPdf = folder.getFilesByName(filename + ".pdf");
+            if (filesPdf.hasNext()) {
+                chunk.pdf_url = filesPdf.next().getUrl();
+                chunk.found = true;
+            }
+        }
+    } catch (e) {
+        chunk.error = e.toString();
+    }
+
+    return chunk;
 }
