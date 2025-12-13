@@ -322,32 +322,48 @@ function App() {
         if (!text.trim()) return;
 
         // UI Updates
-        setMsgInput("");
-        setChatHistory(prev => [...prev, { role: "user", content: text }]);
+        const msg = overrideText || msgInput;
+        if (!msg.trim() && !listening) return;
+
+        if (!overrideText) {
+            setMsgInput("");
+            setChatHistory(prev => [...prev, { role: "user", content: msg }]);
+        }
+
         setAiThinking(true);
 
-        if (!agentRef.current) {
-            setChatHistory(prev => [...prev, { role: "system", content: "Agent initializing..." }]);
+        // 1. Check for quick local commands (e.g., "clear")
+        if (msg.toLowerCase() === "clear") { clearChat(); setAiThinking(false); return; }
+
+        // Update Context
+        if (agentRef.current) {
+            agentRef.current.contextProvider = () => ({ st, tasks, schedule, todayLog, dash });
+        }
+
+        // 2. Send to Agent with Logging Callback
+        const response = await agentRef.current.chat(msg, 0, (logMsg) => {
+            setChatHistory(prev => {
+                const last = prev[prev.length - 1];
+                // If last message is a system update, REPLACE it. Otherwise append.
+                if (last && last.role === "system" && !last.content.startsWith(">")) {
+                    // Check if it's a progress update vs a final command log
+                    return [...prev.slice(0, -1), { role: "system", content: logMsg }];
+                }
+                return [...prev, { role: "system", content: logMsg }];
+            });
+        });
+
+        if (!response.command && !response.commands && !response.text) {
+            setChatHistory(prev => [...prev, { role: "system", content: "Agent Core Unresponsive." }]);
             setAiThinking(false);
             return;
         }
 
-        // --- DELEGATE TO AGENT SERVICE ---
-        // We pass a fresh context extractor to ensure it reads LATEST state
-        agentRef.current.contextProvider = () => ({ st, tasks, schedule, todayLog, dash });
-
-        const response = await agentRef.current.chat(text);
-
-        // Handle Response
-        // Handle Response
+        // Display AI Text Response
         if (response.text) {
-            // FILTER OUT JSON ARTIFACTS COMPLETELY from user view
+            // FILTER OUT JSON ARTIFACTS COMPLETELY from user view if any remain
             const cleanText = response.text.replace(/```json[\s\S]*?```/g, "").trim();
-            if (cleanText) {
-                setChatHistory(prev => [...prev, { role: "assistant", content: cleanText }]);
-                // SILENT AI: No Voice
-                // Voice.speak(cleanText);
-            }
+            if (cleanText) setChatHistory(prev => [...prev, { role: "assistant", content: cleanText }]);
         }
 
         // Execute Commands Silently (No Toast)
@@ -357,23 +373,38 @@ function App() {
             console.log("Agent Commands:", cmds);
 
             // OPTIMIZATION: Check for multiple completions and run them in parallel
-            const completions = cmds.filter(c => (c.tool || c.t) === "complete");
-            const others = cmds.filter(c => (c.tool || c.t) !== "complete");
+            // AI sends 'completeTask', 'check', or 'complete'
+            const completions = cmds.filter(c => ['complete', 'completeTask', 'check'].includes(c.tool || c.t));
+            const others = cmds.filter(c => !['complete', 'completeTask', 'check'].includes(c.tool || c.t));
 
             // 1. Handle Bulk Completions First (Parallel)
             if (completions.length > 0) {
-                setChatHistory(prev => [...prev, { role: "system", content: `> Completing ${completions.length} tasks...` }]);
+                setChatHistory(prev => [...prev, { role: "system", content: `> Processing ${completions.length} task completions...` }]);
 
-                // Using Promise.all for speed, skipping 'act' wrapper to avoid multi-refresh
-                await Promise.all(completions.map(cmd => callApi("completeTask", { id: cmd.id, listId: cmd.listId || cmd.lid }).catch(e => console.error(e))));
+                const results = await Promise.all(completions.map(async (cmd) => {
+                    try {
+                        const res = await callApi("completeTask", { id: cmd.id, listId: cmd.listId || cmd.lid });
+                        return { id: cmd.id, status: 'success', msg: `Task Marked Done` };
+                    } catch (e) {
+                        return { id: cmd.id, status: 'error', msg: e.message };
+                    }
+                }));
+
+                // Log results to Chat
+                results.forEach(r => {
+                    setChatHistory(prev => [...prev, {
+                        role: "system",
+                        content: r.status === 'success' ? `✅ ${r.msg}` : `❌ Error: ${r.msg}`
+                    }]);
+                });
 
                 // Update Local State Optimistically
                 setTasks(prev => prev.map(t => {
-                    const matched = completions.find(c => c.id === t.id);
+                    const matched = results.find(r => r.id === t.id && r.status === 'success');
                     return matched ? { ...t, status: 'completed' } : t;
                 }));
 
-                // Single Sync at the end
+                // Single Sync at the end to be sure
                 refreshFull();
             }
 
@@ -400,25 +431,37 @@ function App() {
                     setChatHistory(prev => [...prev, { role: "system", content: logMsg }]);
                     await new Promise(r => setTimeout(r, 500));
 
+                    let res;
                     if (tool === "nav") {
                         let v = (cmd.view || cmd.v || "").toLowerCase();
                         if (v.includes("cal") || v.includes("sched")) v = "plan";
                         setModal(v);
                     }
-                    else if (tool === "start") { await act("start", { category: cmd.category || cmd.cat, target: cmd.minutes || cmd.min || cmd.target }); }
-                    else if (tool === "cal_start") { await act("startFromCalendar", { query: cmd.query || cmd.q }); }
-                    else if (tool === "stop") { await act("stop"); }
-                    else if (tool === "pause") { await act("pause", { minutes: cmd.minutes || cmd.min, seconds: cmd.seconds || cmd.sec }); }
+                    else if (tool === "start") { res = await act("start", { category: cmd.category || cmd.cat, target: cmd.minutes || cmd.min || cmd.target }); }
+                    else if (tool === "cal_start") { res = await act("startFromCalendar", { query: cmd.query || cmd.q }); }
+                    else if (tool === "stop") { res = await act("stop"); }
+                    else if (tool === "pause") { res = await act("pause", { minutes: cmd.minutes || cmd.min, seconds: cmd.seconds || cmd.sec }); }
                     else if (tool === "resume") {
                         // OPTIMISTIC UPDATE: Shift Start Time locally to avoid jump
                         if (st.pauseStart) {
                             const pauseDuration = Date.now() - st.pauseStart;
                             setSt(prev => ({ ...prev, running: true, paused: false, startTime: prev.startTime + pauseDuration }));
                         }
-                        await act("resume");
+                        res = await act("resume");
                     }
-                    else if (tool === "reset") { await act("reset"); }
-                    else if (tool === "log") { await act("add", { minutes: cmd.minutes || cmd.min, category: cmd.category || cmd.cat }); }
+                    else if (tool === "reset") { res = await act("reset"); }
+                    else if (tool === "log" || tool === "add") { res = await act("add", { minutes: cmd.minutes || cmd.min, category: cmd.category || cmd.cat }); }
+
+                    // Log Result Confirmation
+                    if (res && res.msg) {
+                        setChatHistory(prev => [...prev, { role: "system", content: `✅ ${res.msg}` }]);
+                    } else if (res && res.error) {
+                        setChatHistory(prev => [...prev, { role: "system", content: `❌ Error: ${res.error}` }]);
+                    } else if (tool !== "nav") {
+                        // Default success message if none provided by backend
+                        setChatHistory(prev => [...prev, { role: "system", content: `✅ Command '${tool}' Executed.` }]);
+                    }
+
                 } catch (e) {
                     setChatHistory(prev => [...prev, { role: "system", content: `Error: ${e.message}` }]);
                 }

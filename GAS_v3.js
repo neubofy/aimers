@@ -50,6 +50,12 @@ function doPost(e) {
         else if (action === 'dashboard') out = getDashboardData_v2();
         else if (action === 'scheduleToday') out = getTodayStudyEvents_v2();
 
+        // GRANULAR DATA CHUNKS (Token Optimization)
+        else if (action === 'stats_only') out = getStatsOnly_v2();
+        else if (action === 'history_chunk') out = getHistoryChunk_v2();
+        else if (action === 'prediction_chunk') out = getPredictionChunk_v2();
+        else if (action === 'journal_chunk') out = getJournalChunk_v2(); // New custom reader
+
         // NEW: UNIFIED CONTEXT FOR AGENT (Mentor Mode)
         else if (action === 'getAgentContext') out = getUnifiedAgentContext();
         else if (action === 'getHistoryContext') out = getDeepHistoryContext();
@@ -98,30 +104,30 @@ function getDeepHistoryContext() {
 }
 
 function getUnifiedAgentContext() {
-    // 1. Fetch ALL data efficiently
-    // Note: In GAS, we want to minimize individual Spreadsheet calls.
-    // Ideally, we'd batch these, but for now we reuse existing robust functions.
-
+    // 1. Fetch ALL data efficiently (Token Optimized)
     const timer = getTimerState_v2();
     const todaySessions = getTodaySessions_v2();
-    const dashboard = getDashboardData_v2(); // Includes XP, Level, History
-    const tasks = getEnhancedTasks_v2(); // Includes Overdue/Today/Upcoming
-    const schedule = getTodayStudyEvents_v2(); // Includes Google Calendar status
+    const statsOnly = getStatsOnly_v2(); // O(1) Read
+    const tasks = getEnhancedTasks_v2();
+    const schedule = getTodayStudyEvents_v2();
+    const prediction = getPredictionChunk_v2(); // O(N) but on small today set, not history
 
-    // 2. Synthesize "Notifications" (The "Live" Aspect)
-    const notifications = generateNotifications(timer, todaySessions, dashboard, tasks, schedule);
+    // 2. Synthesize "Notifications"
+    // Mock dashboard object for compatibility
+    const mockDash = { stats: statsOnly };
+    const notifications = generateNotifications(timer, todaySessions, mockDash, tasks, schedule);
 
     // 3. Return One Mega-Object
     return {
         timestamp: Date.now(),
         timer: timer,
         stats: {
-            xp: dashboard.stats.totalXP,
-            level: dashboard.stats.level,
-            streak: dashboard.stats.streak,
-            planned_minutes: dashboard.stats.plannedMinutes,
+            xp: statsOnly.totalXP,
+            level: statsOnly.level,
+            streak: statsOnly.streak,
+            planned_minutes: statsOnly.plannedMinutes,
             actual_today_minutes: todaySessions.reduce((sum, s) => sum + s.minutes, 0),
-            prediction: dashboard.prediction
+            prediction: prediction // Inject full prediction object
         },
         schedule: schedule.map(s => ({
             title: s.title,
@@ -131,9 +137,9 @@ function getUnifiedAgentContext() {
         })),
         tasks: {
             urgent: tasks.filter(t => t.dueStr && t.dueStr <= getTodayStr() && t.status !== 'completed').length,
-            list: tasks.slice(0, 10) // Send top 10 relevant tasks to save bandwidth
+            list: tasks.slice(0, 10)
         },
-        notifications: notifications // The Agent should "speak" these
+        notifications: notifications
     };
 }
 
@@ -330,8 +336,15 @@ function logSession_v2(minutes, category, type) {
 }
 
 function addManualSession_v2(mins, cat) {
-    if (mins > 0) { logSession_v2(mins, cat || "Manual", 'manual'); return { success: true }; }
-    return { success: false };
+    if (mins > 0) {
+        try {
+            logSession_v2(mins, cat || "Manual", 'manual');
+            return { success: true, minutes: mins, category: cat || "Manual", msg: `Logged ${mins}m to ${cat || 'Manual'}` };
+        } catch (e) {
+            return { error: e.toString() };
+        }
+    }
+    return { success: false, error: "Zero minutes specified" };
 }
 
 // ==========================================
@@ -407,28 +420,36 @@ function getTodayStudyEvents_v2() {
         });
 }
 
+
 function getDashboardData_v2() {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     let responsesSheet = ss.getSheetByName(RESPONSES_SHEET_NAME);
 
-    let gamifiedData = { totalXP: 0, level: 0, streak: 0, plannedMinutes: 0 };
+    let gamifiedData = { totalXP: 0, level: 0, streak: 0, plannedMinutes: 0, lastLogAD: "" };
 
     if (responsesSheet) {
         const lastRow = responsesSheet.getLastRow();
         if (lastRow > 1) {
             const xpValues = responsesSheet.getRange(lastRow, 15, 1, 3).getValues()[0];
             const planValue = responsesSheet.getRange(lastRow, 7).getValue();
+            const colADValue = responsesSheet.getRange(lastRow, 30).getValue();
 
             gamifiedData.totalXP = Number(xpValues[0]) || 0;
             gamifiedData.level = Number(xpValues[1]) || 0;
             gamifiedData.streak = Number(xpValues[2]) || 0;
             gamifiedData.plannedMinutes = Number(planValue) || 0;
+            gamifiedData.lastLogAD = colADValue;
         }
     }
 
-    const timeSheet = getSheet_v2(); const timeData = timeSheet.getDataRange().getValues();
+    const timeSheet = getSheet_v2();
+    const timeData = timeSheet.getDataRange().getValues();
     const days = []; const todayDate = new Date();
-    for (let i = 6; i >= 0; i--) { const d = new Date(todayDate); d.setDate(d.getDate() - i); days.push(Utilities.formatDate(d, getUserTZ(), "yyyy-MM-dd")); }
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(todayDate);
+        d.setDate(d.getDate() - i);
+        days.push(Utilities.formatDate(d, getUserTZ(), "yyyy-MM-dd"));
+    }
 
     const historyTotals = {}; days.forEach(d => historyTotals[d] = 0);
     for (let i = 1; i < timeData.length; i++) {
@@ -448,19 +469,25 @@ function getDashboardData_v2() {
     const segments = todaySessions.map(s => s.minutes);
     const totalMinutes = segments.reduce((a, b) => a + b, 0);
     const xpTime = Math.floor(totalMinutes / 30) * 30;
+
     let xpRate = 1;
-    const PLANNED_TIME = 510; const ratio = xpTime / PLANNED_TIME;
+    const PLANNED_TIME = 510;
+    const ratio = xpTime / PLANNED_TIME;
     if (ratio < 0.9) xpRate = 0.5; else if (ratio < 1.0) xpRate = 1; else if (ratio < 1.1) xpRate = 3; else xpRate = 5;
 
     const studyXP = Math.round(xpTime * xpRate);
     const taskXP = (tasksDone * 100) - ((tasksPlanned - tasksDone) * 100);
+
     let bonusXP = 0;
     segments.forEach(mins => { if (mins >= 300) bonusXP += 1000; else if (mins >= 240) bonusXP += 500; else if (mins >= 180) bonusXP += 250; else if (mins >= 120) bonusXP += 150; });
 
     return {
         stats: gamifiedData,
         history: days.map(d => ({ date: d, total: historyTotals[d] })),
-        prediction: { xp: studyXP + taskXP + bonusXP, breakdown: { study: studyXP, task: taskXP, bonus: bonusXP } }
+        prediction: {
+            xp: studyXP + taskXP + bonusXP,
+            breakdown: { study: studyXP, task: taskXP, bonus: bonusXP }
+        }
     };
 }
 
@@ -544,4 +571,115 @@ function sendTelegram(text) {
         const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage?chat_id=${CHAT_ID}&text=${encodeURIComponent(text)}`;
         try { UrlFetchApp.fetch(url); } catch (e) { }
     }
+}
+
+// --- GRANULAR DATA GETTERS (Token-Optimized) ---
+
+
+function getStatsOnly_v2() {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(RESPONSES_SHEET_NAME);
+    if (!sheet) return { xp: 0 };
+
+    // Optimization: Read only last row
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { xp: 0 };
+
+    // Batch Read: Range Row=Last, Col=1 (Start), 1 Row, 30 Cols to cover everything we need
+    // Or just read specific cells to be safer against column shifts
+    // Cols 15 (XP), 16 (Level), 17 (Streak)
+    // Col 7 (Plan)
+    // Col 30 (Journal AD)
+
+    const xpVals = sheet.getRange(lastRow, 15, 1, 3).getValues()[0];
+    const plan = sheet.getRange(lastRow, 7).getValue();
+
+    return {
+        totalXP: Number(xpVals[0]) || 0,
+        level: Number(xpVals[1]) || 0,
+        streak: Number(xpVals[2]) || 0,
+        plannedMinutes: Number(plan) || 0,
+        // Map to standard keys AI expects
+        xp: Number(xpVals[0]) || 0
+    };
+}
+
+function getHistoryChunk_v2() {
+    // History optimization: Read only last 7 rows of Time Log
+    const sheet = getSheet_v2();
+    const lastRow = sheet.getLastRow();
+    const startRow = Math.max(2, lastRow - 6);
+    const numRows = lastRow - startRow + 1;
+
+    if (numRows < 1) return { history: [] };
+
+    // Col 1=Date, Col 2=TotalMin
+    const data = sheet.getRange(startRow, 1, numRows, 2).getValues();
+    const history = data.map(r => ({ date: Utilities.formatDate(new Date(r[0]), getUserTZ(), "yyyy-MM-dd"), total: r[1] }));
+
+    return { history: history };
+}
+
+
+function getJournalChunk_v2() {
+    const ss = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = ss.getSheetByName(RESPONSES_SHEET_NAME);
+    if (!sheet) return { journal: [] };
+
+    const lastRow = sheet.getLastRow();
+    const history = [];
+    // Read last 7 days (or rows)
+    const startRow = Math.max(2, lastRow - 6);
+    const numRows = lastRow - startRow + 1;
+
+    if (numRows > 0) {
+        // Read Date (Col 1) and Reflection (Col 30/AD)
+        // Range: Row startRow, Col 1, numRows, 30 columns
+        const data = sheet.getRange(startRow, 1, numRows, 30).getValues();
+
+        data.forEach(row => {
+            const dateStr = Utilities.formatDate(new Date(row[0]), getUserTZ(), "yyyy-MM-dd");
+            const reflect = row[29]; // Index 29 is Column 30 (AD)
+            if (reflect) history.push({ date: dateStr, note: reflect });
+        });
+    }
+    return { journal: history };
+}
+
+function getPredictionChunk_v2() {
+    // 1. Get Logged Minutes Today
+    const todaySessions = getTodaySessions_v2();
+    const segments = todaySessions.map(s => s.minutes);
+    const totalMinutes = segments.reduce((a, b) => a + b, 0);
+
+    // 2. XP Calculation
+    const xpTime = Math.floor(totalMinutes / 30) * 30;
+    let xpRate = 1;
+    const PLANNED_TIME = 510;
+    const ratio = xpTime / PLANNED_TIME;
+    if (ratio < 0.9) xpRate = 0.5; else if (ratio < 1.0) xpRate = 1; else if (ratio < 1.1) xpRate = 3; else xpRate = 5;
+
+    const studyXP = Math.round(xpTime * xpRate);
+
+    // 3. Task XP
+    const tasks = getEnhancedTasks_v2();
+    const todayStr = (typeof getTodayStr === 'function') ? getTodayStr() : Utilities.formatDate(new Date(), getUserTZ(), "yyyy-MM-dd");
+
+    const tasksDone = tasks.filter(t => t.status === 'completed' && t.completedToday).length;
+    const tasksPlanned = tasks.filter(t => t.status === 'completed' && t.completedToday || (t.status === 'needsAction' && t.dueStr === todayStr)).length;
+
+    const taskXP = (tasksDone * 100) - ((tasksPlanned - tasksDone) * 100);
+
+    // 4. Bonus XP
+    let bonusXP = 0;
+    segments.forEach(mins => { if (mins >= 300) bonusXP += 1000; else if (mins >= 240) bonusXP += 500; else if (mins >= 180) bonusXP += 250; else if (mins >= 120) bonusXP += 150; });
+
+    return {
+        predictedXP: studyXP + taskXP + bonusXP,
+        breakdown: { study: studyXP, task: taskXP, bonus: bonusXP },
+        xpRate: xpRate,
+        studyXP: studyXP,
+        taskXP: taskXP,
+        bonusXP: bonusXP
+    };
 }
