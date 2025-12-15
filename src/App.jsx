@@ -10,6 +10,7 @@ import MentorModal from './components/modals/MentorModal';
 import StartSelectorModal from './components/modals/StartSelectorModal';
 import MathModal from './components/modals/MathModal';
 import AlertsModal from './components/modals/AlertsModal';
+import MasterRunModal from './components/modals/MasterRunModal';
 import { callApi } from './services/api';
 import { Voice } from './services/voice';
 
@@ -591,6 +592,10 @@ function App() {
                                 <i className={`fas fa-sync-alt ${sync === 'active' ? 'spin' : ''}`}></i>
                                 <span>SYNC</span>
                             </button>
+                            <button className="header-btn danger" onClick={() => setModal('master-run')} title="Force Run" style={{ borderColor: '#ff4d4d', color: '#ff4d4d' }}>
+                                <i className="fas fa-terminal"></i>
+                                <span>RUN</span>
+                            </button>
                             <button className="header-btn" onClick={togglePiP} title="Pop Out">
                                 <span>⤢</span>
                                 <span>POP OUT</span>
@@ -635,6 +640,10 @@ function App() {
                                             <span>INSTALL APP</span>
                                         </button>
                                     )}
+                                    <button className="header-btn" onClick={() => { setModal('master-run'); setMenuOpen(false); }} title="Force Run" style={{ justifyContent: 'center', width: '100%', borderColor: '#ff4d4d', color: '#ff4d4d' }}>
+                                        <i className="fas fa-terminal"></i>
+                                        <span>NIGHTLY PROTOCOL</span>
+                                    </button>
                                     <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '5px 0' }}></div>
                                     <button className="header-btn danger" onClick={() => { handleLogout(); setMenuOpen(false); }} title="Logout" style={{ justifyContent: 'center', width: '100%' }}>
                                         <i className="fas fa-power-off"></i>
@@ -718,6 +727,7 @@ function App() {
                         {modal === 'tasks' && <TasksModal tasks={tasks} taskTab={taskTab} setTaskTab={setTaskTab} act={act} />}
                         {modal === 'log' && <LogModal todayLog={todayLog} />}
                         {modal === 'math-challenge' && <MathModal onSuccess={() => { setModal(null); act("stop"); }} onCancel={() => setModal(null)} />}
+                        {modal === 'master-run' && <MasterRunModal onClose={goBack} />}
                     </div>
                 </div>
             )
